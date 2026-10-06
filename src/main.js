@@ -32,8 +32,18 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const fmtSize = (b) => (b > 1048576 ? `${num((b / 1048576).toFixed(1))} MB` : `${num(Math.max(1, Math.round(b / 1024)))} KB`);
 
 function notify(kind, key, vars = {}) {
-  ui.notices.push({ kind, key, vars, id: uid() });
+  const id = uid();
+  ui.notices.push({ kind, key, vars, id });
   if (ui.notices.length > 6) ui.notices.shift();
+  // Errors stay until closed; other toasts fade out so they never sit on top of buttons.
+  if (kind !== 'error') {
+    setTimeout(() => {
+      ui.notices = ui.notices.filter((n) => n.id !== id);
+      // Remove just the toast (no full re-render, so typing focus is kept).
+      $app.querySelector(`[data-act="dismiss"][data-id="${id}"]`)?.closest('.notice')?.remove();
+      if (!ui.notices.length) $app.querySelector('.notices')?.remove();
+    }, 6000);
+  }
 }
 
 /** Remember the current matches/expiries so the next change can be undone. */
@@ -199,9 +209,33 @@ function setMatch(reqId, fileId) {
   changed();
 }
 
-function removeFile(fileId) {
+/**
+ * In-app confirmation (bilingual, styled, keyboard friendly) instead of the browser's confirm().
+ * Lives outside #app so re-renders never close it. Resolves true only on the confirm button.
+ */
+function askConfirm(message, okLabel) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'confirm';
+    dlg.innerHTML = `<form method="dialog">
+      <p class="confirm-msg">${esc(message)}</p>
+      <div class="row confirm-actions">
+        <button class="btn" value="cancel" autofocus>${t('cancel')}</button>
+        <button class="btn danger" value="ok">${esc(okLabel)}</button>
+      </div></form>`;
+    dlg.addEventListener('click', (e) => e.target === dlg && dlg.close('cancel')); // backdrop click
+    dlg.addEventListener('close', () => {
+      resolve(dlg.returnValue === 'ok');
+      dlg.remove();
+    });
+    document.body.appendChild(dlg);
+    dlg.showModal();
+  });
+}
+
+async function removeFile(fileId) {
   const f = project.files.find((x) => x.id === fileId);
-  if (!f || !confirm(t('confirm_remove', { name: f.name }))) return;
+  if (!f || !(await askConfirm(t('confirm_remove', { name: f.name }), t('remove')))) return;
   const reqId = reqOfFile(project.matches, fileId);
   if (reqId) {
     delete project.matches[reqId];
@@ -633,6 +667,7 @@ function viewGenerate() {
       <div class="row wrap">
         <input type="password" id="ai-key" placeholder="sk-ant-…" autocomplete="off" aria-label="${t('ai_key')}" value="${esc(sessionKey())}">
         <button class="btn" data-act="ai" ${ui.aiBusy ? 'disabled' : ''}>${ui.aiBusy ? t('ai_thinking') : t('ai_ask')}</button>
+        ${sessionKey() ? `<button class="btn danger" data-act="ai-clear">${t('ai_clear')}</button>` : ''}
       </div>
       <small class="muted-text">${t('ai_key')}</small>
       ${ui.aiText ? `<pre class="ai-out">${esc(ui.aiText)}</pre>` : ''}
@@ -699,12 +734,15 @@ $app.addEventListener('click', (e) => {
     case 'remove':
       return removeFile(id);
     case 'remove-all':
-      if (!confirm(t('confirm_reset'))) return;
-      project.files = [];
-      project.matches = {};
-      project.expiries = {};
-      ui.thumbs = {};
-      return changed();
+      return askConfirm(t('confirm_remove_all', { n: project.files.length }), t('remove_all')).then((ok) => {
+        if (!ok) return;
+        project.files = [];
+        project.matches = {};
+        project.expiries = {};
+        ui.thumbs = {};
+        ui.history = [];
+        changed();
+      });
     case 'preview': {
       const f = project.files.find((x) => x.id === id);
       if (!f) return;
@@ -736,15 +774,24 @@ $app.addEventListener('click', (e) => {
       project.seal = null;
       return changed();
     case 'reset':
-      if (!confirm(t('confirm_reset'))) return;
-      project = emptyProject();
-      ui.notices = [];
-      ui.thumbs = {};
-      ui.history = [];
-      clearProject();
-      return changed();
+      return askConfirm(t('confirm_reset'), t('start_over')).then((ok) => {
+        if (!ok) return;
+        project = emptyProject();
+        ui.notices = [];
+        ui.thumbs = {};
+        ui.history = [];
+        clearProject();
+        changed();
+      });
     case 'ai':
       return askAi();
+    case 'ai-clear':
+      try {
+        localStorage.removeItem('tpb_ai_key');
+      } catch {}
+      ui.aiText = '';
+      notify('ok', 'ai_cleared');
+      return render();
   }
 });
 
