@@ -6,7 +6,7 @@ import {
 } from './logic.js';
 import { sha256, looksLikePdf, inspectPdf, thumbnail, buildPackage } from './pdf.js';
 import { saveProject, loadProject, clearProject, exportProjectFile, importProjectFile } from './storage.js';
-import { brandLockup, logoMark } from './logo.js';
+import { logoMark } from './logo.js';
 
 const MAX_FILES = 30;
 const MAX_MB = 50;
@@ -24,6 +24,7 @@ const ui = {
   aiBusy: false,
   preview: null, // object URL of file being previewed
   history: [], // undo stack of { matches, expiries } snapshots
+  tab: 'tender', // active step: the only section shown on phones, the scroll target on desktop
 };
 
 const $app = document.getElementById('app');
@@ -428,20 +429,172 @@ async function askAi() {
 const statusClass = { missing: 'bad', expiry_needed: 'warn', expired: 'bad', not_provided: 'muted', ok: 'good' };
 const statusIcon = { missing: '✕', expiry_needed: '!', expired: '✕', not_provided: '–', ok: '✓' };
 
-function viewHeader() {
+const TABS = ['tender', 'files', 'match', 'package'];
+
+/** SF Symbols-like line icons, inline so they follow currentColor. */
+const ICONS = {
+  tender: '<path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  files: '<path d="M4 7a2 2 0 0 1 2-2h3.6l2 2H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M12 10.5v5M9.8 12.7 12 10.5l2.2 2.2"/>',
+  match: '<path d="M4 6.5h9M4 12h6M4 17.5h9"/><path d="m15 12 2.2 2.2L21 10"/>',
+  package: '<path d="M12 3 20 7.3v9.4L12 21l-8-4.3V7.3Z"/><path d="M4 7.3 12 11.6l8-4.3M12 11.6V21"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6"/><path d="M12 17h.01"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  check: '<path d="m5 12.5 4.2 4.2L19 7"/>',
+};
+const icon = (name, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+
+/** Shared numbers for the rail, tab bar and step 3 summary. */
+function stats() {
+  const counts = { block: 0, np: 0, mok: 0, mtotal: 0 };
+  if (!project.reqs) return { counts, st: {} };
+  const st = allStatuses(project);
+  for (const r of project.reqs.requirements) {
+    const s = st[r.id];
+    if (BLOCKING.has(s)) counts.block++;
+    else if (s === STATUS.NOT_PROVIDED) counts.np++;
+    if (r.mandatory) {
+      counts.mtotal++;
+      if (s === STATUS.OK) counts.mok++;
+    }
+  }
+  return { counts, st };
+}
+
+/** Per-step state: done flag and a one-line status for the rail. */
+function stepInfo() {
+  const { counts } = stats();
+  const hasReq = !!project.reqs;
+  return {
+    tender: { done: hasReq, note: hasReq ? esc(project.reqs.tender.tender_id) : t('rail_none') },
+    files: { done: project.files.length > 0, note: t('rail_files', { n: project.files.length }) },
+    match: {
+      done: hasReq && !counts.block,
+      bad: hasReq && counts.block > 0,
+      note: !hasReq ? '—' : counts.block ? t('rail_block', { n: counts.block }) : t('rail_clear'),
+    },
+    package: {
+      done: !!ui.output,
+      note: ui.output ? t('rail_done') : hasReq && !counts.block ? t('rail_ready') : t('rail_waiting'),
+    },
+    counts,
+  };
+}
+
+function langSwitch() {
+  const l = getLang();
+  return `<div class="seg" role="group" aria-label="Language">
+    <button class="${l === 'en' ? 'on' : ''}" data-act="lang" data-lang="en" lang="en" aria-pressed="${l === 'en'}">EN</button>
+    <button class="${l === 'bn' ? 'on' : ''}" data-act="lang" data-lang="bn" lang="bn" aria-pressed="${l === 'bn'}">বাং</button>
+  </div>`;
+}
+
+function ring(ok, total) {
+  const p = total ? ok / total : 0;
+  const C = 2 * Math.PI * 26;
+  return `<svg class="ring" viewBox="0 0 64 64" aria-hidden="true">
+    <circle cx="32" cy="32" r="26" class="ring-track"/>
+    <circle cx="32" cy="32" r="26" class="ring-fill${p === 1 ? ' full' : ''}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p)}"/>
+  </svg>`;
+}
+
+/** Desktop: sticky side rail with brand, step navigation and live readiness. */
+function viewRail() {
+  const info = stepInfo();
+  const { mok, mtotal } = info.counts;
   return `
-  <header class="top">
-    <div>
-      ${brandLockup(t('app_title'))}
-      <p class="sub">${t('app_sub')}</p>
+  <aside class="rail">
+    <div class="rail-brand">${logoMark({ className: 'brand-mark', size: 40 })}<span>${t('app_title')}</span></div>
+    <nav class="steps" aria-label="${t('steps_nav')}">
+      ${TABS.map((k, i) => {
+        const s = info[k];
+        return `<button class="step${ui.tab === k ? ' on' : ''}${s.done ? ' done' : ''}${s.bad ? ' bad' : ''}" data-act="tab" data-tab="${k}">
+          <span class="step-dot">${s.done ? icon('check') : num(i + 1)}</span>
+          <span class="step-txt"><b>${t(`tab_${k}`)}</b><small>${s.note}</small></span>
+        </button>`;
+      }).join('')}
+    </nav>
+    <div class="ready-card">
+      <div class="ring-wrap">${ring(mok, mtotal)}<span class="ring-num">${num(mok)}<i>/${num(mtotal)}</i></span></div>
+      <p>${t('readiness')}</p>
     </div>
-    <div class="top-actions">
-      <button class="ghost" data-act="help" aria-expanded="${ui.showHelp}">❓ ${t('help')}</button>
-      <button class="lang" data-act="lang" lang="${getLang() === 'en' ? 'bn' : 'en'}">🌐 ${t('lang_switch')}</button>
+    <div class="rail-foot">
+      ${langSwitch()}
+      <button class="icon-btn" data-act="help" aria-expanded="${ui.showHelp}" aria-label="${t('help')}" title="${t('help')}">${icon('help')}</button>
+    </div>
+  </aside>`;
+}
+
+/** Phones/tablets: iOS navigation bar (compact title appears once the large title scrolls away). */
+function viewMobileTop() {
+  const i = TABS.indexOf(ui.tab);
+  return `
+  <header class="mtop">
+    <div class="mbar">
+      ${logoMark({ className: 'mbar-mark', size: 30 })}
+      <span class="mbar-title">${t(`tab_${ui.tab}`)}</span>
+      <div class="mbar-actions">
+        <button class="icon-btn" data-act="help" aria-expanded="${ui.showHelp}" aria-label="${t('help')}">${icon('help')}</button>
+        ${langSwitch()}
+      </div>
     </div>
   </header>
-  ${ui.showHelp ? `<ol class="help">${t('help_steps').map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
-  <p class="privacy">🔒 ${t('privacy')}</p>`;
+  <div class="mlarge">
+    <p class="eyebrow">${t('step_of', { n: i + 1 })}</p>
+    <h1 class="large-title">${t(`tab_${ui.tab}`)}</h1>
+  </div>`;
+}
+
+/** Desktop hero above the steps. */
+function viewHero() {
+  return `
+  <header class="hero">
+    <p class="eyebrow">${t('app_title')} · AI DevFest 2026</p>
+    <h1>${t('hero_a')} <em>${t('hero_b')}</em></h1>
+    <p class="hero-sub">${t('app_sub')}</p>
+    <p class="privacy">${icon('lock')} ${t('privacy')}</p>
+  </header>`;
+}
+
+function viewHelp() {
+  return ui.showHelp ? `<ol class="help">${t('help_steps').map((s) => `<li>${esc(s)}</li>`).join('')}</ol>` : '';
+}
+
+/** Phones/tablets: floating glass tab bar. */
+function viewTabbar() {
+  const info = stepInfo();
+  const i = TABS.indexOf(ui.tab);
+  const from = ui.tabFrom ?? i; // the active pill slides only right after a tab switch
+  const badge = {
+    files: project.files.length ? `<span class="tb-badge">${num(project.files.length)}</span>` : '',
+    match: info.match.bad ? `<span class="tb-badge bad">${num(info.counts.block)}</span>` : '',
+    package: info.match.done ? '<span class="tb-dot"></span>' : '',
+  };
+  return `
+  <nav class="tabbar" aria-label="${t('steps_nav')}" style="--i:${i};--from:${from}">
+    <span class="tb-pill${from !== i ? ' slide' : ''}" aria-hidden="true"></span>
+    ${TABS.map((k) => `<button class="tb${ui.tab === k ? ' on' : ''}" data-act="tab" data-tab="${k}" aria-current="${ui.tab === k ? 'page' : 'false'}">
+      <span class="tb-ico">${icon(k)}${badge[k] || ''}</span><span class="tb-lbl">${t(`tab_${k}`)}</span>
+    </button>`).join('')}
+  </nav>`;
+}
+
+/** Section header: big step numeral, eyebrow, title, optional actions. */
+function secHead(n, actions = '') {
+  const [step, title] = t(`step${n}`).split(' · ');
+  return `<div class="sec-head">
+    <div class="sec-titles"><span class="sec-num">0${n}</span><div><p class="eyebrow">${step}</p><h2>${title || step}</h2></div></div>
+    ${actions ? `<div class="row sec-actions">${actions}</div>` : ''}
+  </div>`;
+}
+const secAttrs = (k) => `class="card sec${ui.tab === k ? ' on' : ''}" data-sec="${k}" id="sec-${k}"`;
+
+/** Shown on phones when a later step is opened before requirements exist. */
+function viewNeedReq(k, n) {
+  return `<section ${secAttrs(k)} data-only-m>
+    ${secHead(n)}
+    <div class="empty-state">${icon('tender', 'ico big')}<p>${t('need_req')}</p>
+      <button class="btn primary" data-act="tab" data-tab="tender">${t('go_tender')}</button></div>
+  </section>`;
 }
 
 function viewNotices() {
@@ -464,9 +617,9 @@ function viewTender() {
       <p class="muted-text">${t('req_count', { n: r.requirements.length, m: r.requirements.filter((x) => x.mandatory).length })}</p>`
     : `<p class="empty">${t('no_req')}</p>`;
   return `
-  <section class="card">
-    <h2>${t('step1')}</h2>
-    <div class="row">
+  <section ${secAttrs('tender')}>
+    ${secHead(1)}
+    <div class="row wrap">
       <label class="btn primary">📄 ${t('open_req')}<input type="file" accept=".json,application/json" data-in="req" hidden></label>
       <button class="btn" data-act="sample" ${ui.busy ? 'disabled' : ''}>🧪 ${t('load_sample')}</button>
     </div>
@@ -483,15 +636,15 @@ function viewFiles() {
       const req = project.reqs?.requirements.find((r) => r.id === reqId);
       const thumb = ui.thumbs[f.id] && ui.thumbs[f.id] !== 'x' ? ui.thumbs[f.id] : '';
       return `<tr class="${dups[f.id] ? 'dup-row' : ''}" draggable="true" data-file="${f.id}" title="${esc(t('drag_hint'))}">
-        <td class="thumb"><img data-thumb="${f.id}" src="${thumb}" alt="" ${thumb ? '' : 'class="blank"'}></td>
-        <td>
+        <td class="thumb c-thumb"><img data-thumb="${f.id}" src="${thumb}" alt="" ${thumb ? '' : 'class="blank"'}></td>
+        <td class="c-name">
           <div class="fname">${esc(f.name)}</div>
-          <div class="meta">${fmtSize(f.size)}</div>
+          <div class="meta">${fmtSize(f.size)}<span class="m-only"> · ${num(f.pages)} ${t('pages')}</span></div>
           ${dups[f.id] ? `<div class="badge warn">⧉ ${t('duplicate')}</div> <span class="dupnote">${esc(t('duplicate_of', { names: dups[f.id].map(nameOf).join(', ') }))}</span>` : ''}
         </td>
-        <td class="num">${num(f.pages)}</td>
-        <td>${req ? `<span class="badge good">${esc(reqTitle(req))}</span>` : `<span class="muted-text">${t('not_matched')}</span>`}</td>
-        <td class="actions">
+        <td class="num c-pages">${num(f.pages)}</td>
+        <td class="c-match">${req ? `<span class="badge good">${esc(reqTitle(req))}</span>` : `<span class="muted-text">${t('not_matched')}</span>`}</td>
+        <td class="actions c-act">
           <button class="small" data-act="preview" data-id="${f.id}">👁 ${t('preview')}</button>
           <button class="small danger" data-act="remove" data-id="${f.id}">🗑 ${t('remove')}</button>
         </td>
@@ -499,10 +652,11 @@ function viewFiles() {
     })
     .join('');
   return `
-  <section class="card">
-    <h2>${t('step2')}</h2>
+  <section ${secAttrs('files')}>
+    ${secHead(2)}
     <label class="drop" data-drop>
-      <span>⬆️ ${t('drop_here')}</span>
+      <span class="drop-ico">${icon('files', 'ico big')}</span>
+      <span class="drop-txt">${t('drop_here')}</span>
       <span class="btn primary">${t('choose_files')}</span>
       <input type="file" multiple accept="application/pdf,.pdf" data-in="files" hidden>
       <small>${t('limits', { files: MAX_FILES, mb: MAX_MB })}</small>
@@ -550,19 +704,9 @@ function viewFileTray() {
 }
 
 function viewRequirements() {
-  if (!project.reqs) return '';
-  const st = allStatuses(project);
+  if (!project.reqs) return viewNeedReq('match', 3);
+  const { st, counts } = stats();
   const deadline = project.reqs.tender.submission_deadline;
-  const counts = { block: 0, np: 0, mok: 0, mtotal: 0 };
-  for (const r of project.reqs.requirements) {
-    const s = st[r.id];
-    if (BLOCKING.has(s)) counts.block++;
-    else if (s === STATUS.NOT_PROVIDED) counts.np++;
-    if (r.mandatory) {
-      counts.mtotal++;
-      if (s === STATUS.OK) counts.mok++;
-    }
-  }
   const rows = project.reqs.requirements
     .map((r) => {
       const s = st[r.id];
@@ -579,30 +723,26 @@ function viewRequirements() {
       }
       const why = s === STATUS.EXPIRED ? t('why_expired', { date: project.expiries[r.id], deadline }) : '';
       return `<tr class="st-${s}" data-req-drop="${r.id}">
-        <td class="num">${num(r.order)}</td>
-        <td>
+        <td class="num c-order">${num(r.order)}</td>
+        <td class="c-doc">
           <div class="rtitle">${esc(reqTitle(r))}</div>
           <div class="meta">${esc(getLang() === 'bn' ? r.title_en : r.title_bn)}</div>
           <span class="tag ${r.mandatory ? 'm' : 'o'}">${r.mandatory ? t('mandatory') : t('optional')}</span>
         </td>
-        <td>
+        <td class="c-file">
           <select data-in="match" data-req="${r.id}" aria-label="${t('file')}">${fileOptions(r)}</select>
           ${fileId ? `<button class="link" data-act="unmatch" data-req="${r.id}">↺ ${t('unmatch')}</button>` : ''}
         </td>
-        <td>${expiryCell}</td>
-        <td><span class="badge ${statusClass[s]}">${statusIcon[s]} ${t(`st_${s}`)}</span>${why ? `<div class="why">${esc(why)}</div>` : ''}</td>
+        <td class="c-exp"${r.has_expiry ? '' : ' data-na'}>${expiryCell}</td>
+        <td class="c-status"><span class="badge ${statusClass[s]}">${statusIcon[s]} ${t(`st_${s}`)}</span>${why ? `<div class="why">${esc(why)}</div>` : ''}</td>
       </tr>`;
     })
     .join('');
   return `
-  <section class="card">
-    <div class="card-head">
-      <h2>${t('step3')}</h2>
-      <div class="row">
+  <section ${secAttrs('match')}>
+    ${secHead(3, `
         <button class="btn" data-act="undo" ${ui.history.length ? '' : 'disabled'} title="Ctrl/⌘ + Z">↶ ${t('undo')}</button>
-        <button class="btn" data-act="auto" ${project.files.length ? '' : 'disabled'}>✨ ${t('auto_match')}</button>
-      </div>
-    </div>
+        <button class="btn primary" data-act="auto" ${project.files.length ? '' : 'disabled'}>✨ ${t('auto_match')}</button>`)}
     <p class="summary ${counts.block ? 'has-block' : 'all-clear'}">${t('summary', counts)}</p>
     ${viewFileTray()}
     <div class="table-wrap"><table class="reqs">
@@ -613,7 +753,7 @@ function viewRequirements() {
 }
 
 function viewGenerate() {
-  if (!project.reqs) return '';
+  if (!project.reqs) return viewNeedReq('package', 4);
   const problems = blockingProblems(project);
   const deadline = project.reqs.tender.submission_deadline;
   const why = (p) =>
@@ -623,8 +763,8 @@ function viewGenerate() {
   const seal = project.seal;
   const positions = ['bottom_right', 'bottom_left', 'bottom_center', 'top_right', 'top_left'];
   return `
-  <section class="card">
-    <h2>${t('step4')}</h2>
+  <section ${secAttrs('package')}>
+    ${secHead(4)}
     ${problems.length
       ? `<div class="blocked"><strong>⛔ ${t('blocked_title')}</strong><ul>${problems
           .map((p) => `<li><b>${esc(reqTitle(p.req))}</b> — ${t(`st_${p.status}`)}: ${esc(why(p))}</li>`)
@@ -660,7 +800,7 @@ function viewGenerate() {
     </div>
     <p class="muted-text">${t('autosave')}</p>
   </section>
-  <section class="card">
+  <section class="card sec ai${ui.tab === 'package' ? ' on' : ''}" data-sec="package">
     <details>
       <summary>🤖 ${t('ai_title')}</summary>
       <p class="muted-text">${t('ai_note')}</p>
@@ -694,23 +834,69 @@ function render() {
   document.documentElement.lang = getLang();
   document.title = t('app_title');
   const scroll = window.scrollY;
-  $app.innerHTML = `${viewHeader()}${viewNotices()}${viewTender()}${viewFiles()}${viewRequirements()}${viewGenerate()}
-    <footer class="site-foot">
-      <div class="foot-brand">${logoMark({ className: 'foot-mark', size: 22 })} <span>${t('app_title')}</span></div>
-      <p class="foot-note">${t('footer')}</p>
-    </footer>${viewPreview()}`;
+  $app.dataset.tab = ui.tab;
+  $app.innerHTML = `<div class="shell">${viewRail()}
+    <div class="main">${viewMobileTop()}${viewHero()}${viewHelp()}
+      ${viewTender()}${viewFiles()}${viewRequirements()}${viewGenerate()}
+      <footer class="site-foot">
+        <div class="foot-brand">${logoMark({ className: 'foot-mark', size: 22 })} <span>${t('app_title')}</span></div>
+        <p class="foot-note">${t('footer')}</p>
+      </footer>
+    </div></div>${viewTabbar()}${viewNotices()}${viewPreview()}`;
   window.scrollTo(0, scroll);
   syncStickyTop();
+  onScroll();
+  if (ui.tabFrom != null) {
+    ui.tabFrom = null;
+    $app.classList.add('tab-enter');
+    clearTimeout(tabEnterTimer);
+    tabEnterTimer = setTimeout(() => $app.classList.remove('tab-enter'), 600);
+  }
 }
+let tabEnterTimer;
 
-/** Keep sticky elements (the file tray) just below the sticky header, whatever its height. */
+const isDesktop = () => window.matchMedia('(min-width: 900px)').matches;
+
+/** Keep sticky elements (the file tray) just below the mobile nav bar, whatever its height. */
 function syncStickyTop() {
-  const head = $app.querySelector('header.top');
-  if (!head) return;
-  const top = parseFloat(getComputedStyle(head).top) || 0;
-  document.documentElement.style.setProperty('--sticky-top', `${Math.ceil(head.offsetHeight + top + 8)}px`);
+  const bar = $app.querySelector('.mtop');
+  const h = bar && bar.offsetParent !== null ? bar.offsetHeight : 0;
+  document.documentElement.style.setProperty('--sticky-top', `${Math.ceil(h + 8)}px`);
 }
 window.addEventListener('resize', syncStickyTop);
+
+/** iOS nav bar collapse on phones; scroll-spy of the step rail on desktop (no re-render). */
+function onScroll() {
+  const large = $app.querySelector('.mlarge');
+  $app.querySelector('.mtop')?.classList.toggle('scrolled', !!large && large.getBoundingClientRect().bottom < 60);
+  if (!isDesktop()) return;
+  let cur = 'tender';
+  for (const k of TABS) {
+    const sec = document.getElementById(`sec-${k}`);
+    if (sec && sec.offsetParent !== null && sec.getBoundingClientRect().top < window.innerHeight * 0.35) cur = k;
+  }
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) {
+    cur = [...TABS].reverse().find((k) => document.getElementById(`sec-${k}`)?.offsetParent) || cur;
+  }
+  if (cur === ui.tab) return;
+  ui.tab = cur;
+  $app.dataset.tab = cur;
+  $app.querySelectorAll('.rail .step').forEach((b) => b.classList.toggle('on', b.dataset.tab === cur));
+}
+window.addEventListener('scroll', onScroll, { passive: true });
+
+function openTab(k) {
+  if (!TABS.includes(k)) return;
+  if (k !== ui.tab && !isDesktop()) ui.tabFrom = TABS.indexOf(ui.tab);
+  ui.tab = k;
+  if (isDesktop()) {
+    $app.querySelectorAll('.rail .step').forEach((b) => b.classList.toggle('on', b.dataset.tab === k));
+    document.getElementById(`sec-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  render();
+  window.scrollTo(0, 0);
+}
 
 // ---------------- Events (delegated) ----------------
 
@@ -721,8 +907,10 @@ $app.addEventListener('click', (e) => {
   const id = el.dataset.id;
   switch (act) {
     case 'lang':
-      setLang(getLang() === 'en' ? 'bn' : 'en');
+      setLang(el.dataset.lang || (getLang() === 'en' ? 'bn' : 'en'));
       return render();
+    case 'tab':
+      return openTab(el.dataset.tab);
     case 'help':
       ui.showHelp = !ui.showHelp;
       return render();
