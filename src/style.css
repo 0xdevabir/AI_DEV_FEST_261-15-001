@@ -157,7 +157,7 @@ html[lang='bn'] .eyebrow { font-family: var(--font); letter-spacing: 0; text-tra
   background: linear-gradient(rgba(255,255,255,.2), rgba(255,255,255,.06));
 }
 .step {
-  position: relative; display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  position: relative; display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; text-align: left;
   padding: 10px 10px; border: 0; border-radius: 16px; background: transparent; color: rgba(245,245,245,.62);
 }
 .step:hover:not(:disabled) { background: rgba(255,255,255,.06); border-color: transparent; }
@@ -193,11 +193,10 @@ html[lang='bn'] .eyebrow { font-family: var(--font); letter-spacing: 0; text-tra
 .ring-fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .8s var(--spring); }
 .ring-fill.full { stroke: var(--highlight); }
 .ring-num {
-  position: absolute; inset: 0; display: grid; place-items: center;
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-family: var(--serif); font-size: 1.45rem; line-height: 1; letter-spacing: -.02em;
 }
 .ring-num i { font-style: normal; font-size: .85rem; opacity: .55; }
-.ring-num { display: flex; align-items: center; justify-content: center; }
 .rail-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
 /* segmented control (iOS) */
@@ -224,7 +223,7 @@ html[lang='bn'] .eyebrow { font-family: var(--font); letter-spacing: 0; text-tra
 .hero { padding: 36px 4px 10px; }
 .hero h1 {
   margin: 12px 0 0; font-family: var(--serif); font-weight: 400; font-size: clamp(2.6rem, 4.6vw, 4.2rem);
-  line-height: 1.02; letter-spacing: -.025em; color: var(--ink); max-width: 15ch;
+  line-height: 1.02; letter-spacing: -.025em; color: var(--ink); max-width: 19ch;
 }
 .hero h1 em {
   font-style: italic; color: var(--accent-ink);
