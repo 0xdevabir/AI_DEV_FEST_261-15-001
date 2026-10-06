@@ -1,96 +1,242 @@
-# TenderNest — Tender Document Package Builder
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="TenderNest" width="88" height="88" />
+</p>
 
-A frontend-only web app for AI DevFest 2026 (Vibe Coding). It turns a tender's `requirements.json` and a pile of PDFs into **one checked, correctly ordered submission PDF**: `<tender_id>_Package.pdf`.
-Everything runs in the browser. No file is uploaded anywhere, and there is no backend or serverless function.
+# TenderNest
+
+### Tender requirements in · one checked, ordered package PDF out — entirely in the browser, in English and বাংলা
+
+![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white)
+![pdf-lib](https://img.shields.io/badge/pdf--lib-package%20builder-1B1B1B?style=flat-square)
+![pdf.js](https://img.shields.io/badge/pdf.js-inspect%20%26%20thumbnails-A8BCA1?style=flat-square)
+![i18n](https://img.shields.io/badge/EN%20%2B%20বাংলা-full%20UI-96EEFB?style=flat-square&labelColor=1B1B1B)
+![Frontend only](https://img.shields.io/badge/Frontend%20only-0%20backend-4F6A47?style=flat-square)
+![MIT](https://img.shields.io/badge/License-MIT-f3efe6?style=flat-square&labelColor=1B1B1B)
+
+> **Why is this hard?** Tender teams drown in PDFs: wrong order, expired licences, duplicate scans, missing mandatory docs, and a cover page that still has to be typed by hand. One bad page can sink a bid.
+
+> **TenderNest answers one question:** _given this tender’s requirements and these PDFs, is the package complete, valid, and correctly ordered — and if so, download the submission PDF now?_
+
+| Live demo | Reg. no. | Sample package | Tests | Languages |
+| --------- | -------- | -------------- | ----- | --------- |
+| [tendernest.devabir.me](https://tendernest.devabir.me/) | **261-15-001** | [`T-2026-0417_Package.pdf`](output/T-2026-0417_Package.pdf) | unit tests for status · match · duplicates | **EN + বাংলা** |
+
+![All requirements OK and package ready](screenshots/04_all_ok_ready_en.png)
 
 | | |
 |---|---|
-| **Name** | _<your full name>_ |
+| **Name** | **MD ABIR HOSSAIN** |
+| **Institution** | Daffodil International University |
 | **Registration number** | 261-15-001 |
-| **Live link** | **<https://0xdevabir.github.io/AI_DEV_FEST_261-15-001/>** (GitHub Pages, HTTPS) |
-| **Sample output** | [`output/T-2026-0417_Package.pdf`](output/T-2026-0417_Package.pdf), made from the official sample pack |
+| **Live link** | https://tendernest.devabir.me/ |
+| **Repository** | [github.com/0xdevabir/AI_DEV_FEST_261-15-001](https://github.com/0xdevabir/AI_DEV_FEST_261-15-001) |
+| **Sample output** | [`output/T-2026-0417_Package.pdf`](output/T-2026-0417_Package.pdf) |
 | **Screenshots** | [`screenshots/`](screenshots/) |
+| **Full report** | [`docs/REPORT.md`](docs/REPORT.md) |
 
-![Statuses](screenshots/03_expired_blocks_generate.png)
-![All OK, ready to generate](screenshots/07_all_ok_drag_match_summary.png)
+---
 
-## How to run
+## 🎯 The problem and how we answer it
 
-You need Node.js 20.19+ (or 22+) and the latest Google Chrome.
+| The problem | What TenderNest does | Where to see it |
+| ----------- | -------------------- | --------------- |
+| Requirements arrive as JSON; humans still assemble PDFs by hand | Loads & validates `requirements.json`, sorts by `order`, shows tender meta | Step 1 |
+| Wrong file type or corrupt PDF sneaks in | Rejects by extension **and** `%PDF-` header; clear bilingual errors | Upload step · Known problems |
+| 1:1 matching is easy to break | Dropdown + **drag-and-drop** chips; moving a used file rematches; undo | Matching · Screenshot 07 |
+| Expiry dates are forgotten or applied silently | Date field only when `has_expiry`; PDF-detected date is a **suggestion**, never auto-applied | Expiry row |
+| Generate proceeds with holes | Live statuses block generate until every mandatory row is OK | Screenshot 03 |
+| Package needs cover, order, footers | Builds cover + optional Bangla index + shrunk pages + footers with pdf-lib | Screenshot 05 |
+| Bangla users get English-only tools | Full UI translation, Bangla digits, `title_bn` / `title_en` | Screenshot 06 · 08 |
+
+---
+
+## 🔁 How it works
+
+### One session, start to finish
+
+```mermaid
+flowchart LR
+    A["📄 requirements.json<br/>or sample pack"] --> B["✅ Validate tender<br/>& requirements"]
+    B --> C["⬆️ Upload PDFs<br/>inspect · thumb · hash"]
+    C --> D["🔗 Match 1:1<br/>manual · drag · auto"]
+    D --> E["📅 Expiry check<br/>vs submission deadline"]
+    E --> F{"Blocking<br/>problems?"}
+    F -- yes --> G["⛔ Block generate<br/>list reasons"]
+    F -- no --> H["📦 buildPackage<br/>cover · index · docs · footers"]
+    H --> I["⬇️ Download<br/>tender_id_Package.pdf"]
+```
+
+### What happens when you press Generate
+
+```mermaid
+sequenceDiagram
+    actor U as Staff
+    participant UI as TenderNest UI
+    participant L as logic.js
+    participant P as pdf.js
+    U->>UI: Generate package
+    UI->>L: blockingProblems(project)
+    alt any Missing / Expired / Expiry needed
+        L-->>UI: blockers
+        UI-->>U: Generate disabled + reason list
+    else clear
+        UI->>P: buildPackage(tender, docs, seal, index)
+        P->>P: cover → optional index PNG → embed PDFs → footers
+        P-->>UI: bytes + page map
+        UI-->>U: Download + in-app preview
+    end
+```
+
+---
+
+## ✅ Sample pack walkthrough
+
+Bundled unchanged in [`public/sample-pack/`](public/sample-pack/).
+
+1. Click **Load sample pack** — ten PDFs load; `company_logo.png` is rejected; the two `experience_cert` files flag as **Duplicate**.
+2. Click **Auto-match by file names** — seven documents match; the valid 2026 trade licence wins over the expired 2025 one.
+3. Click **Use it** on detected expiry dates (Trade License `2027-06-30`, Bank Solvency `2026-12-31`).
+4. Match `scan_0042.pdf` (image-only scan) to **Signed Declaration** — dropdown or drag from the tray.
+5. Click **Generate package** → download `T-2026-0417_Package.pdf`.
+
+---
+
+## 🖥️ Feature tour
+
+| | |
+|:---:|:---:|
+| [![Sample loaded — all missing](screenshots/01_sample_loaded_all_missing.png)](screenshots/01_sample_loaded_all_missing.png)<br/>**Load.** Requirements + uploads; every mandatory row starts **Missing**. | [![After auto-match](screenshots/02_after_auto_match.png)](screenshots/02_after_auto_match.png)<br/>**Auto-match.** Names + PDF text + synonyms; duplicates never used twice. |
+| [![Expired blocks generate](screenshots/03_expired_blocks_generate.png)](screenshots/03_expired_blocks_generate.png)<br/>**Safety.** Expired docs keep Generate disabled with reasons. | [![All OK ready](screenshots/04_all_ok_ready_en.png)](screenshots/04_all_ok_ready_en.png)<br/>**Ready.** Mandatory OK summary; Generate unlocks. |
+| [![Generated package](screenshots/05_generated_en.png)](screenshots/05_generated_en.png)<br/>**Package.** Cover, ordered docs, footers — preview + download. | [![Bangla UI](screenshots/06_bangla_ui.png)](screenshots/06_bangla_ui.png)<br/>**বাংলা.** Full UI, statuses, errors, help, Bangla digits. |
+| [![Drag match](screenshots/07_all_ok_drag_match_summary.png)](screenshots/07_all_ok_drag_match_summary.png)<br/>**Drag match.** Sticky unused-file tray → drop on a requirement row. | [![Bangla all OK](screenshots/08_bangla_all_ok.png)](screenshots/08_bangla_all_ok.png)<br/>**Bilingual ready.** Same workflow, Bangla chrome. |
+
+### Also built in
+
+| Surface | What it does |
+| ------- | ------------ |
+| **Animated intro** | ShopZen / R Slash–style splash — nest mark assembles, wordmark rises, zoom reveal; respects `prefers-reduced-motion` |
+| **Brand system** | SVG logo with weave pattern — favicon, header lockup, footer, intro |
+| **Live statuses** | Missing · Expiry needed · Expired · Not provided · OK — colour, icon, reason |
+| **Index page** | Optional page after cover with Bangla titles (canvas → PNG at 300 dpi) |
+| **Seal / signature** | PNG on chosen pages (`all`, `1, 3-5`, …), position + size |
+| **Checklist CSV** | Excel-friendly export of match / status / expiry |
+| **Autosave** | IndexedDB in this browser + save/open project `.json` |
+| **Undo** | Ctrl/⌘+Z undoes the last change (including a whole auto-match) |
+| **Optional AI** | User-pasted Anthropic key suggests matches; core app works with AI off |
+| **Privacy** | Files never leave the machine — no upload, no backend, no serverless |
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TB
+    subgraph Browser["Browser only"]
+      UI["main.js · logo.js · style.css"]
+      I18N["i18n.js · EN / BN"]
+      LOGIC["logic.js · pure rules"]
+      PDF["pdf.js · pdfjs-dist + pdf-lib"]
+      STORE["storage.js · IndexedDB"]
+      UI --> I18N
+      UI --> LOGIC
+      UI --> PDF
+      UI --> STORE
+    end
+    SAMPLE["public/sample-pack/"] -.-> UI
+    TESTS["tests/logic.test.js"] -.-> LOGIC
+```
+
+```
+tendernest/
+├── public/
+│   ├── logo.svg · favicon.svg
+│   └── sample-pack/          # official pack (unchanged) + manifest.json
+├── screenshots/              # feature tour
+├── output/                   # sample T-2026-0417_Package.pdf
+├── docs/
+│   ├── REPORT.md             # full system report
+│   └── assets/logo.svg
+├── src/
+│   ├── main.js               # UI, events, generate flow
+│   ├── logic.js              # status · match · duplicates · auto-match
+│   ├── pdf.js                # inspect PDFs · build package
+│   ├── i18n.js               # English + Bangla
+│   ├── storage.js            # IndexedDB + project file
+│   ├── logo.js               # inline SVG brand mark
+│   └── style.css             # warm canvas · ink · sage theme
+├── tests/logic.test.js
+├── index.html                # intro splash + shell
+└── vite.config.js
+```
+
+---
+
+## ⚡ How to run
+
+**Requirements:** Node.js 20.19+ (or 22+) and a modern Chromium browser (latest Google Chrome recommended).
 
 ```bash
 npm install
-npm run dev        # open the URL it prints (http://localhost:5173)
-npm test           # unit tests for the status / matching / duplicate rules
-npm run build      # static build in dist/ (deploy anywhere over HTTPS)
+npm run dev        # http://localhost:5173
+npm test           # status / matching / duplicate unit tests
+npm run build      # static dist/
 npm run preview    # serve the build locally
 ```
 
-To try it quickly, click **Load sample pack**. It loads the official sample pack (bundled unchanged in `public/sample-pack/`), including the PNG logo, so you can see it being rejected. You can also open `requirements.json` and drag in PDFs yourself.
+The build is fully static. Host `dist/` on any HTTPS static host (Cloudflare Pages, Netlify, GitHub Pages, Vercel static). No server, no env secrets required for core features.
 
-### Steps for the sample pack
-1. Click **Load sample pack**. Ten PDFs are added, `company_logo.png` is rejected, and the two `experience_cert` files are marked **Duplicate**.
-2. Click **Auto-match by file names**. Seven documents are matched. The valid 2026 trade licence is picked over the expired 2025 one.
-3. Click **Use it** on the detected expiry dates (Trade License 2027-06-30, Bank Solvency 2026-12-31).
-4. Match `scan_0042.pdf` (an image-only scan with a meaningless name) to **Signed Declaration**: pick it in the row, or drag its chip from the tray onto the row.
-5. Click **Generate package**, then download `T-2026-0417_Package.pdf` (17 pages).
+---
 
-## Main features (problem statement §4)
-- **Requirements (4.1):** loads and validates `requirements.json` with clear errors for bad JSON, a missing tender or a bad deadline. Shows the tender details and requirements sorted by `order`.
-- **Upload (4.2):** multi-file picker and drag-and-drop. Shows each file's name, page count, size and a thumbnail, with a preview. Non-PDFs are rejected by name *and* by content (`%PDF-` header) with a clear message. Files can be removed. Limits are 30 files and 50 MB in total.
-- **Matching (4.3):** strictly 1:1. Pick a file from the dropdown in each row, or **drag** a file (from the sticky tray of unused files, or from the upload list) onto a document row. Choosing a file already used elsewhere moves it. **Undo match** clears one match. **Undo** (or Ctrl/⌘+Z) reverts the last change, including a whole auto-match.
-- **Expiry (4.4):** a date field appears only when `has_expiry` is true and a file is matched. The date found in the PDF text is offered as a one-click suggestion, never applied silently.
-- **Live statuses (4.5):** Missing, Expiry date needed, Expired, Not provided and OK, with colour, icon and reason. An expiry date on the deadline day counts as OK. Dates are compared as ISO strings, so there are no timezone bugs. A summary line shows **mandatory OK (x of y)**, the number of blocking documents and the optional documents not provided.
-- **Safe actions:** removing a file, removing all files and starting over each ask first in an in-app dialog (English/Bangla, Esc cancels).
-- **Duplicates (4.6):** found by SHA-256 of the content, not the file name. A duplicate copy cannot be matched to a different document; the option is disabled.
-- **Blocking (4.7):** **Generate** stays disabled while anything blocks. The app lists every blocking document and why. Optional documents never block.
-- **Package (4.8):**
-  - Page 1 is an English cover with the tender ID, title, procuring entity, bidder, deadline, date made, and the included documents in order with their page counts and start pages.
-  - All pages of every matched document follow, in `order`. Optional documents without a file are skipped.
-  - Every page has the footer `<tender_id> | Page X of Y`. Each source page is scaled slightly into the area above a reserved footer band, so the footer **never covers content**. Rotated pages are handled.
-- **Bangla / English (4.9):** the whole UI switches with one click, including statuses, errors and help. Requirement titles use `title_bn` / `title_en`, numbers use Bangla digits, and the choice is remembered.
+## Main features (done)
+
+- **Requirements (4.1):** load & validate `requirements.json`; tender details; requirements sorted by `order`.
+- **Upload (4.2):** multi-file + drag-and-drop; name, pages, size, thumbnail, preview; non-PDF rejected by name and content; remove / remove-all; limits **30 files · 50 MB** total.
+- **Matching (4.3):** strict 1:1; dropdown or drag from tray / file list; rematch moves file; undo match; global Undo.
+- **Expiry (4.4):** field only when `has_expiry` + matched; PDF date offered as one-click suggestion.
+- **Live statuses (4.5):** Missing, Expiry date needed, Expired, Not provided, OK; deadline day = OK; ISO date compare (no TZ bugs); summary of mandatory OK / blockers / optional gaps.
+- **Generate (4.6):** blocked while problems remain; cover + ordered docs + page footers (`tender_id | Page x of y`).
+- **Download (4.7):** `<tender_id>_Package.pdf` with in-app preview.
+- **Privacy (4.8):** everything local — no upload, no backend.
+- **Bangla / English (4.9):** one-click switch for UI, statuses, errors, help; Bangla digits; remembered preference.
 
 ## Bonus features
-- **Index page** after the cover, with page ranges and **Bangla titles**. It is rendered with the browser's own text shaping, so the Bangla conjuncts are correct.
-- **Seal / signature PNG** on chosen pages (`all`, `1, 3-5`, …), with a choice of position and size.
-- **Checklist export** as CSV that opens in Excel (UTF-8 BOM, so Bangla displays correctly).
-- **Save / reopen:** autosaves to IndexedDB in this browser, and can save or open a project file (`.json`).
-- **Auto-match** by file name and the PDF's own text, with synonyms (e.g. TIN/tax, MAF). It prefers documents still valid on the deadline and never uses a duplicate twice.
-- **Damaged and password-protected PDFs** are refused with a clear message instead of crashing.
-- **Expiry-date detection** from the PDF text (e.g. "Valid until 30 June 2025").
-- **Optional AI help:** asks Claude to review the matches and suggest which unused file could fill a gap. It uses **your own** Anthropic API key, typed into the app and kept only in your browser's localStorage (a **Forget key** button removes it), and sends only file names, statuses and the first lines of text. Everything else works without AI.
+
+- Index page with correctly shaped Bangla titles.
+- Seal / signature PNG on chosen pages.
+- Checklist CSV export.
+- Autosave (IndexedDB) + save / open project file.
+- Auto-match by file name + PDF text (synonyms; prefers still-valid docs; never double-uses a duplicate).
+- Optional Claude-assisted matching (user-supplied key).
+- Branded intro animation + SVG logo system.
 
 ## Known problems
-- Password-protected PDFs are refused. The user must remove the password first; we don't ask for it.
-- Image-only scans (e.g. `scan_0042.pdf`) have no text, so auto-match cannot place them and they must be matched by hand.
-- The cover page uses the standard PDF font, so it is English only (as required). Bangla appears on the index page instead.
-- The PDF preview inside the page uses Chrome's built-in viewer. If it's turned off, use **Download** instead.
-- Pages are scaled to about 97% so the footer has its own space. This is a deliberate trade-off so the footer never covers content.
-- With very long document lists, the cover and index pages shrink their text so every row still fits on one page; at around 30 documents the text gets small.
-- The index page is a 300-dpi image (so the Bangla is shaped correctly), so its text cannot be selected or searched.
-- Drag-and-drop matching needs a mouse; on touch screens use the dropdown in each row.
-- The AI help needs an internet connection and a valid key, and it may be wrong. It only gives advice and never changes matches by itself.
+
+- Password-protected PDFs are refused (remove the password first).
+- Image-only scans have no text → auto-match cannot place them; match by hand.
+- Pages scale to ~97% so footers never cover content (deliberate trade-off).
+- Index page is a 300-dpi image → text is not selectable/searchable.
+- Drag-and-drop matching needs a mouse; on touch, use the row dropdown.
+- Optional AI needs a user-pasted Anthropic key and network; the rest of the app works offline from that API.
 
 ## AI tools used
-- **Claude Code (Claude Opus 5.5)** read the rulebook, problem statement and sample pack, then planned, wrote and tested the app. It also drove Chrome with Playwright to create the sample output and the screenshots.
 
-**Most useful prompt:**
-> Read the contest materials carefully, make a solid plan, then build and ship a working solution that fully follows the rules and uses the required sample pack … Stay fully rule-compliant. Prefer choices that maximize score under the official scoring criteria. If something is ambiguous, state your assumption and choose the safest compliant option. Do not ignore or replace the sample pack.
+- **Claude / Cursor agents** — planning from the rulebook & sample pack, implementation, tests, UI polish, intro branding, README/report.
+- **Playwright / browser tooling** — sample package generation and screenshots where used.
+
+## Most useful prompt
+
+> Read the contest materials carefully, make a solid plan, then build and ship a working solution that fully follows the rules and uses the required sample pack. Stay fully rule-compliant. Prefer choices that maximize score under the official scoring criteria. If something is ambiguous, state your assumption and choose the safest compliant option. Do not ignore or replace the sample pack.
 
 ## Assumptions
-- "Date made" on the cover is the date the package is generated (`YYYY-MM-DD`).
-- Expired means the expiry date is **before** the submission deadline. The same day is valid.
-- The 50 MB limit applies to all uploaded files together.
 
-## Project layout
-```
-src/logic.js    status, matching, duplicate and auto-match rules (pure, unit tested)
-src/pdf.js      PDF reading (pdf.js) and package building (pdf-lib)
-src/i18n.js     English / Bangla text
-src/storage.js  IndexedDB autosave and project file
-src/main.js     user interface
-public/sample-pack/  official sample pack (unchanged) + manifest.json
-```
+- “Date made” on the cover is the generation date (`YYYY-MM-DD`).
+- The 50 MB limit applies to all uploaded files together.
+- Deadline-day expiry counts as still valid (OK).
+
+---
 
 ## License
-[MIT](LICENSE)
+
+[MIT](LICENSE) · © 2026 MD ABIR HOSSAIN · Daffodil International University
+
+Built for **AI DevFest 2026** (Vibe Coding) · [Live demo](https://tendernest.devabir.me/) · [Full system report](docs/REPORT.md)
