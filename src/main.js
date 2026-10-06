@@ -585,7 +585,6 @@ function viewHero() {
     <p class="eyebrow">${t('app_title')} · AI DevFest 2026</p>
     <h1>${t('hero_a')} <em>${t('hero_b')}</em></h1>
     <p class="hero-sub">${t('app_sub')}</p>
-    <p class="privacy">${icon('lock')} ${t('privacy')}</p>
   </header>`;
 }
 

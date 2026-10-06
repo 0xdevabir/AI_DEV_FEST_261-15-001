@@ -21,7 +21,13 @@
 | --------- | -------- | -------------- | ----- | --------- |
 | [tendernest.devabir.me](https://tendernest.devabir.me/) | **261-15-001** | [`T-2026-0417_Package.pdf`](output/T-2026-0417_Package.pdf) | unit tests for status · match · duplicates | **EN + বাংলা** |
 
-![All requirements OK and package ready](screenshots/04_all_ok_ready_en.png)
+<p align="center">
+  <img src="screenshots/00_home_empty.png" alt="TenderNest — current UI home" width="100%" />
+</p>
+
+<p align="center">
+  <img src="screenshots/04_all_ok_ready_en.png" alt="TenderNest — sample pack ready to generate" width="100%" />
+</p>
 
 | | |
 |---|---|
@@ -42,11 +48,11 @@
 | ----------- | -------------------- | --------------- |
 | Requirements arrive as JSON; humans still assemble PDFs by hand | Loads & validates `requirements.json`, sorts by `order`, shows tender meta | Step 1 |
 | Wrong file type or corrupt PDF sneaks in | Rejects by extension **and** `%PDF-` header; clear bilingual errors | Upload step · Known problems |
-| 1:1 matching is easy to break | Dropdown + **drag-and-drop** chips; moving a used file rematches; undo | Matching · Screenshot 07 |
+| 1:1 matching is easy to break | Dropdown + **drag-and-drop** chips; moving a used file rematches; undo | Matching · Feature tour |
 | Expiry dates are forgotten or applied silently | Date field only when `has_expiry`; PDF-detected date is a **suggestion**, never auto-applied | Expiry row |
-| Generate proceeds with holes | Live statuses block generate until every mandatory row is OK | Screenshot 03 |
-| Package needs cover, order, footers | Builds cover + optional Bangla index + shrunk pages + footers with pdf-lib | Screenshot 05 |
-| Bangla users get English-only tools | Full UI translation, Bangla digits, `title_bn` / `title_en` | Screenshot 06 · 08 |
+| Generate proceeds with holes | Live statuses block generate until every mandatory row is OK | Feature tour · Safety |
+| Package needs cover, order, footers | Builds cover + optional Bangla index + shrunk pages + footers with pdf-lib | Feature tour · Package |
+| Bangla users get English-only tools | Full UI translation, Bangla digits, `title_bn` / `title_en` | Feature tour · বাংলা |
 
 ---
 
@@ -103,12 +109,20 @@ Bundled unchanged in [`public/sample-pack/`](public/sample-pack/).
 
 ## 🖥️ Feature tour
 
+Fresh captures of the **current** TenderNest UI (sidebar steps, warm canvas, sage accents).
+
 | | |
 |:---:|:---:|
-| [![Sample loaded — all missing](screenshots/01_sample_loaded_all_missing.png)](screenshots/01_sample_loaded_all_missing.png)<br/>**Load.** Requirements + uploads; every mandatory row starts **Missing**. | [![After auto-match](screenshots/02_after_auto_match.png)](screenshots/02_after_auto_match.png)<br/>**Auto-match.** Names + PDF text + synonyms; duplicates never used twice. |
-| [![Expired blocks generate](screenshots/03_expired_blocks_generate.png)](screenshots/03_expired_blocks_generate.png)<br/>**Safety.** Expired docs keep Generate disabled with reasons. | [![All OK ready](screenshots/04_all_ok_ready_en.png)](screenshots/04_all_ok_ready_en.png)<br/>**Ready.** Mandatory OK summary; Generate unlocks. |
-| [![Generated package](screenshots/05_generated_en.png)](screenshots/05_generated_en.png)<br/>**Package.** Cover, ordered docs, footers — preview + download. | [![Bangla UI](screenshots/06_bangla_ui.png)](screenshots/06_bangla_ui.png)<br/>**বাংলা.** Full UI, statuses, errors, help, Bangla digits. |
-| [![Drag match](screenshots/07_all_ok_drag_match_summary.png)](screenshots/07_all_ok_drag_match_summary.png)<br/>**Drag match.** Sticky unused-file tray → drop on a requirement row. | [![Bangla all OK](screenshots/08_bangla_all_ok.png)](screenshots/08_bangla_all_ok.png)<br/>**Bilingual ready.** Same workflow, Bangla chrome. |
+| [![Home shell](screenshots/00_home_empty.png)](screenshots/00_home_empty.png)<br/>**Home.** Brand shell, privacy strip, Step 01–02 empty states, dock/sidebar. | [![Sample loaded](screenshots/01_sample_loaded_all_missing.png)](screenshots/01_sample_loaded_all_missing.png)<br/>**Sample pack.** Tender meta loaded; files in; mandatory rows start open. |
+| [![Files list](screenshots/01b_files_uploaded.png)](screenshots/01b_files_uploaded.png)<br/>**Files.** Thumbnails, pages, duplicates flagged, preview/remove. | [![After auto-match](screenshots/02_after_auto_match.png)](screenshots/02_after_auto_match.png)<br/>**Auto-match.** Name + PDF text suggestions; tray keeps unused chips. |
+| [![Blocked generate](screenshots/03_expired_blocks_generate.png)](screenshots/03_expired_blocks_generate.png)<br/>**Safety.** Expiry / missing blockers keep Generate disabled with reasons. | [![All OK ready](screenshots/04_all_ok_ready_en.png)](screenshots/04_all_ok_ready_en.png)<br/>**Ready.** 8/8 mandatory OK — Generate unlocks. |
+| [![Generated package](screenshots/05_generated_en.png)](screenshots/05_generated_en.png)<br/>**Package.** Download `<tender_id>_Package.pdf` + in-app preview. | [![Bangla match](screenshots/06_bangla_ui.png)](screenshots/06_bangla_ui.png)<br/>**বাংলা.** Full UI translation, statuses, digits. |
+| [![Match clear](screenshots/07_all_ok_drag_match_summary.png)](screenshots/07_all_ok_drag_match_summary.png)<br/>**Match.** Drag tray + dropdowns; all mandatory clear. | [![Bangla package](screenshots/08_bangla_all_ok.png)](screenshots/08_bangla_all_ok.png)<br/>**বাংলা package.** Same ready/download flow in Bangla chrome. |
+
+<p align="center">
+  <a href="screenshots/09_confirm_dialog.png"><img src="screenshots/09_confirm_dialog.png" alt="Help panel" width="90%" /></a><br/>
+  <em>Help / how-to panel over the current shell.</em>
+</p>
 
 ### Also built in
 

@@ -361,17 +361,21 @@ Behind a `<details>` panel in Step 4:
 
 ## 17. Visual evidence index
 
+Current UI captures (sidebar / warm canvas / sage theme):
+
 | File | Shows |
 | ---- | ----- |
-| `01_sample_loaded_all_missing.png` | Fresh sample — all mandatory missing |
-| `02_after_auto_match.png` | Auto-match results |
-| `03_expired_blocks_generate.png` | Expired docs block Generate |
-| `04_all_ok_ready_en.png` | English ready state |
-| `05_generated_en.png` | Download + preview after generate |
-| `06_bangla_ui.png` | Bangla interface |
-| `07_all_ok_drag_match_summary.png` | Drag matching + summary |
-| `08_bangla_all_ok.png` | Bangla ready state |
-| `09_confirm_dialog.png` | Destructive confirm UX |
+| `00_home_empty.png` | Brand home shell before a tender is loaded |
+| `01_sample_loaded_all_missing.png` | Sample pack loaded |
+| `01b_files_uploaded.png` | Upload list with duplicates |
+| `02_after_auto_match.png` | Auto-match suggestions |
+| `03_expired_blocks_generate.png` | Generate blocked by expiry / missing |
+| `04_all_ok_ready_en.png` | All mandatory OK — ready to generate |
+| `05_generated_en.png` | Package downloaded / preview |
+| `06_bangla_ui.png` | Bangla match UI |
+| `07_all_ok_drag_match_summary.png` | Match clear with tray |
+| `08_bangla_all_ok.png` | Bangla package ready |
+| `09_confirm_dialog.png` | Help panel |
 
 ---
 
