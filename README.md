@@ -1,4 +1,4 @@
-# Tender Document Package Builder
+# TenderNest — Tender Document Package Builder
 
 A frontend-only web app for AI DevFest 2026 (Vibe Coding). It turns a tender's `requirements.json` and a pile of PDFs into **one checked, correctly ordered submission PDF**: `<tender_id>_Package.pdf`.
 Everything runs in the browser. No file is uploaded anywhere, and there is no backend or serverless function.
@@ -7,11 +7,12 @@ Everything runs in the browser. No file is uploaded anywhere, and there is no ba
 |---|---|
 | **Name** | _<your full name>_ |
 | **Registration number** | 261-15-001 |
-| **Live link** | _<https://0xdevabir.github.io/AI_DEV_FEST_261-15-001/> — fill in after deploying>_ |
+| **Live link** | **<https://0xdevabir.github.io/AI_DEV_FEST_261-15-001/>** (GitHub Pages, HTTPS) |
 | **Sample output** | [`output/T-2026-0417_Package.pdf`](output/T-2026-0417_Package.pdf), made from the official sample pack |
 | **Screenshots** | [`screenshots/`](screenshots/) |
 
 ![Statuses](screenshots/03_expired_blocks_generate.png)
+![All OK, ready to generate](screenshots/07_all_ok_drag_match_summary.png)
 
 ## How to run
 
@@ -31,15 +32,16 @@ To try it quickly, click **Load sample pack**. It loads the official sample pack
 1. Click **Load sample pack**. Ten PDFs are added, `company_logo.png` is rejected, and the two `experience_cert` files are marked **Duplicate**.
 2. Click **Auto-match by file names**. Seven documents are matched. The valid 2026 trade licence is picked over the expired 2025 one.
 3. Click **Use it** on the detected expiry dates (Trade License 2027-06-30, Bank Solvency 2026-12-31).
-4. Match `scan_0042.pdf` (an image-only scan with a meaningless name) to **Signed Declaration**.
+4. Match `scan_0042.pdf` (an image-only scan with a meaningless name) to **Signed Declaration**: pick it in the row, or drag its chip from the tray onto the row.
 5. Click **Generate package**, then download `T-2026-0417_Package.pdf` (17 pages).
 
 ## Main features (problem statement §4)
 - **Requirements (4.1):** loads and validates `requirements.json` with clear errors for bad JSON, a missing tender or a bad deadline. Shows the tender details and requirements sorted by `order`.
 - **Upload (4.2):** multi-file picker and drag-and-drop. Shows each file's name, page count, size and a thumbnail, with a preview. Non-PDFs are rejected by name *and* by content (`%PDF-` header) with a clear message. Files can be removed. Limits are 30 files and 50 MB in total.
-- **Matching (4.3):** strictly 1:1. Choosing a file already used elsewhere moves it. **Undo match** clears a match.
+- **Matching (4.3):** strictly 1:1. Pick a file from the dropdown in each row, or **drag** a file (from the sticky tray of unused files, or from the upload list) onto a document row. Choosing a file already used elsewhere moves it. **Undo match** clears one match. **Undo** (or Ctrl/⌘+Z) reverts the last change, including a whole auto-match.
 - **Expiry (4.4):** a date field appears only when `has_expiry` is true and a file is matched. The date found in the PDF text is offered as a one-click suggestion, never applied silently.
-- **Live statuses (4.5):** Missing, Expiry date needed, Expired, Not provided and OK, with colour, icon and reason. An expiry date on the deadline day counts as OK. Dates are compared as ISO strings, so there are no timezone bugs.
+- **Live statuses (4.5):** Missing, Expiry date needed, Expired, Not provided and OK, with colour, icon and reason. An expiry date on the deadline day counts as OK. Dates are compared as ISO strings, so there are no timezone bugs. A summary line shows **mandatory OK (x of y)**, the number of blocking documents and the optional documents not provided.
+- **Safe actions:** removing a file, removing all files and starting over each ask first in an in-app dialog (English/Bangla, Esc cancels).
 - **Duplicates (4.6):** found by SHA-256 of the content, not the file name. A duplicate copy cannot be matched to a different document; the option is disabled.
 - **Blocking (4.7):** **Generate** stays disabled while anything blocks. The app lists every blocking document and why. Optional documents never block.
 - **Package (4.8):**
@@ -56,7 +58,7 @@ To try it quickly, click **Load sample pack**. It loads the official sample pack
 - **Auto-match** by file name and the PDF's own text, with synonyms (e.g. TIN/tax, MAF). It prefers documents still valid on the deadline and never uses a duplicate twice.
 - **Damaged and password-protected PDFs** are refused with a clear message instead of crashing.
 - **Expiry-date detection** from the PDF text (e.g. "Valid until 30 June 2025").
-- **Optional AI help:** asks Claude to review the matches and suggest which unused file could fill a gap. It uses **your own** Anthropic API key, typed into the app and kept only in your browser's localStorage, and sends only file names, statuses and the first lines of text. Everything else works without AI.
+- **Optional AI help:** asks Claude to review the matches and suggest which unused file could fill a gap. It uses **your own** Anthropic API key, typed into the app and kept only in your browser's localStorage (a **Forget key** button removes it), and sends only file names, statuses and the first lines of text. Everything else works without AI.
 
 ## Known problems
 - Password-protected PDFs are refused. The user must remove the password first; we don't ask for it.
@@ -64,6 +66,9 @@ To try it quickly, click **Load sample pack**. It loads the official sample pack
 - The cover page uses the standard PDF font, so it is English only (as required). Bangla appears on the index page instead.
 - The PDF preview inside the page uses Chrome's built-in viewer. If it's turned off, use **Download** instead.
 - Pages are scaled to about 97% so the footer has its own space. This is a deliberate trade-off so the footer never covers content.
+- With very long document lists, the cover and index pages shrink their text so every row still fits on one page; at around 30 documents the text gets small.
+- The index page is a 300-dpi image (so the Bangla is shaped correctly), so its text cannot be selected or searched.
+- Drag-and-drop matching needs a mouse; on touch screens use the dropdown in each row.
 - The AI help needs an internet connection and a valid key, and it may be wrong. It only gives advice and never changes matches by itself.
 
 ## AI tools used
