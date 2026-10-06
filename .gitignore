@@ -1,0 +1,9 @@
+node_modules
+dist
+*.local
+.env*
+.DS_Store
+*.log
+# graft's local graph cache — regenerable
+/graft/
+.claude/
