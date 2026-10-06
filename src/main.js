@@ -33,6 +33,7 @@ const ui = {
   say: '', // last status change, read out by screen readers
   pulse: false, // Generate button glows once when the last blocker is fixed
   touring: false, // live tour running on the sample pack: nothing gets saved
+  epoch: 0, // bumped when the tour swaps the project: loads still in flight for the old one stop
 };
 const pagesTxt = (n) => `${num(n)} ${t(n === 1 ? 'page_one' : 'page_many')}`;
 
@@ -152,6 +153,8 @@ function loadRequirementsJson(text) {
 
 /** Add files: reject non-PDFs, damaged and password-protected PDFs, respect limits. */
 async function addFiles(fileList) {
+  const epoch = ui.epoch;
+  const stale = () => epoch !== ui.epoch; // the tour swapped the project meanwhile
   ui.busy = true;
   render();
   let added = 0;
@@ -162,6 +165,7 @@ async function addFiles(fileList) {
     $app.querySelector('[data-progress]')?.replaceChildren(t('reading', { i: num(i + 1), n: num(fileList.length) }));
     try {
       const buf = await file.arrayBuffer();
+      if (stale()) return;
       const isPdfName = /\.pdf$/i.test(name) || file.type === 'application/pdf';
       if (!isPdfName || !looksLikePdf(new Uint8Array(buf))) {
         notify('error', 'err_not_pdf', { name });
@@ -176,6 +180,7 @@ async function addFiles(fileList) {
         continue;
       }
       const hash = await sha256(buf);
+      if (stale()) return;
       if (project.files.some((f) => f.hash === hash && f.name === name)) {
         notify('info', 'err_same_file', { name });
         continue;
@@ -184,14 +189,17 @@ async function addFiles(fileList) {
       try {
         info = await inspectPdf(buf);
       } catch (e) {
+        if (stale()) return;
         if (e.message !== 'encrypted') console.warn('could not open PDF', name, e);
         notify('error', e.message === 'encrypted' ? 'err_encrypted' : 'err_damaged', { name });
         continue;
       }
+      if (stale()) return;
       project.files.push({ id: uid(), name, size: buf.byteLength, hash, buf, ...info });
       total += buf.byteLength;
       added++;
     } catch (e) {
+      if (stale()) return;
       console.warn('could not read file', name, e);
       notify('error', 'err_damaged', { name });
     }
@@ -305,6 +313,8 @@ async function filesFromDrop(dt) {
 }
 
 async function loadSamplePack() {
+  const epoch = ui.epoch;
+  const stale = () => epoch !== ui.epoch; // the tour swapped the project meanwhile
   ui.busy = true;
   render();
   let ok = false;
@@ -312,6 +322,7 @@ async function loadSamplePack() {
     const base = `${import.meta.env.BASE_URL}sample-pack/`;
     const manifest = await (await fetch(`${base}manifest.json`)).json();
     const reqText = await (await fetch(`${base}${manifest.requirements}`)).text();
+    if (stale()) return;
     freshProject();
     loadRequirementsJson(reqText);
     const files = [];
@@ -321,10 +332,13 @@ async function loadSamplePack() {
       const blob = await res.blob();
       files.push(new File([blob], name, { type: name.endsWith('.pdf') ? 'application/pdf' : blob.type }));
     }
+    if (stale()) return;
     await addFiles(files);
+    if (stale()) return;
     notify('info', 'sample_loaded');
     ok = !!project.reqs;
   } catch (e) {
+    if (stale()) return;
     console.error(e);
     notify('error', 'err_sample');
   }
@@ -510,6 +524,7 @@ async function renderIndexPng(docs, startPages) {
 
 async function generate() {
   if (blockingProblems(project).length || ui.busy) return;
+  const epoch = ui.epoch;
   ui.busy = true;
   render();
   try {
@@ -533,6 +548,7 @@ async function generate() {
       }
     }
     const { bytes, total, startPages } = await buildPackage(project.reqs.tender, docs, opts);
+    if (epoch !== ui.epoch) return; // the tour swapped the project meanwhile
     const name = `${project.reqs.tender.tender_id}_Package.pdf`;
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     // Page map: which pages of the package hold what, so the user can check it without scrolling the PDF.
@@ -542,6 +558,7 @@ async function generate() {
     ui.output = { url, name, total, map };
     notify('ok', 'generated', { pages: total });
   } catch (e) {
+    if (epoch !== ui.epoch) return;
     console.error(e);
     notify('error', 'err_build', { msg: e.message || String(e) });
   }
@@ -1417,7 +1434,7 @@ function beginTour() {
   freshProject();
   lastStatuses = null;
   // The visitor's package link is kept aside, not revoked, so it still works afterwards.
-  Object.assign(ui, { touring: true, preview: null, output: null, showHelp: false, pulse: false, aiText: '', tab: 'tender' });
+  Object.assign(ui, { touring: true, epoch: ui.epoch + 1, preview: null, output: null, showHelp: false, pulse: false, aiText: '', tab: 'tender' });
   render();
   window.scrollTo({ top: 0, behavior: 'instant' });
   return () => {
@@ -1425,7 +1442,8 @@ function beginTour() {
     if (ui.preview) URL.revokeObjectURL(ui.preview);
     project = saved.project;
     lastStatuses = saved.lastStatuses;
-    Object.assign(ui, saved.ui, { touring: false, notices: [], preview: null, picked: null, say: '' });
+    // A sample load or PDF build cut short by Skip sees the new epoch and drops its result.
+    Object.assign(ui, saved.ui, { touring: false, epoch: ui.epoch + 1, busy: false, progress: null, notices: [], preview: null, picked: null, say: '' });
     setLang(saved.lang);
     render();
     window.scrollTo({ top: saved.scroll, behavior: 'instant' });

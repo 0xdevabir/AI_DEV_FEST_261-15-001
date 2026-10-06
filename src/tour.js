@@ -182,7 +182,7 @@ const STEPS = [
       await nav('tender'); // loading the pack moved the app on to Files
       const dl = find('#sec-tender dl.tender');
       if (!dl) return;
-      await show(dl);
+      await show(dl, dl.nextElementSibling); // with the "N documents required" line
       await hover(dl.querySelector('strong') || dl, 0.3, 0.5);
     },
   },
@@ -433,10 +433,8 @@ async function finish(replay) {
   const r = run;
   stop();
   r.layer.classList.add('leaving');
-  // A sample load or PDF build still in flight must land before the visitor's own project comes back.
-  for (let i = 0; i < 300 && app.ui.busy; i++) await sleep(100);
   document.body.classList.remove('dragging-file');
-  r.restore();
+  r.restore(); // a sample load or PDF build still in flight drops its result (see ui.epoch)
   await sleep(reduced() ? 0 : 340);
   cancelAnimationFrame(r.raf);
   r.layer.remove();
@@ -517,6 +515,8 @@ function frame(now) {
   }
 
   r.cursor.style.transform = `translate3d(${r.cur.x}px, ${r.cur.y}px, 0)`;
+  const flip = r.cur.x > innerWidth - (r.flip ? 150 : 110); // keep the Guide tag on screen near the right edge
+  if (flip !== r.flip) r.cursor.classList.toggle('flip', (r.flip = flip));
   if (r.ghost) r.ghost.el.style.transform = `translate3d(${r.cur.x + r.ghost.dx}px, ${r.cur.y + r.ghost.dy}px, 0)`;
   if (r.read && r.fill) r.fill.style.transform = `scaleX(${clamp((r.time - r.read.t0) / r.read.ms, 0, 1)})`;
   r.raf = requestAnimationFrame(frame);
@@ -664,14 +664,18 @@ function unionRect(els) {
 }
 
 /** The band of the viewport the tour can show things in (below the phone nav bar, above the caption card). */
-function viewBand() {
-  if (app.isDesktop()) return { top: 24, bottom: innerHeight - 24 };
-  return { top: 72, bottom: run.card.getBoundingClientRect().top - 12 };
+function viewBand(els = []) {
+  const v = app.isDesktop() ? { top: 24, bottom: innerHeight - 24 } : { top: 72, bottom: run.card.getBoundingClientRect().top - 12 };
+  // rows under the sticky file tray would scroll in behind it
+  const tray = find('.file-tray');
+  const under = (el) => tray.parentElement.contains(el) && tray.compareDocumentPosition(el) === Node.DOCUMENT_POSITION_FOLLOWING;
+  if (tray && getComputedStyle(tray).position === 'sticky' && els.some(under)) v.top = Math.max(v.top, parseFloat(getComputedStyle(tray).top) + tray.offsetHeight + 12);
+  return v;
 }
 
 function inView(el) {
   const b = el.getBoundingClientRect();
-  const v = viewBand();
+  const v = viewBand([el]);
   return b.top >= v.top - 4 && b.bottom <= v.bottom + 4;
 }
 
@@ -690,7 +694,7 @@ async function ensureVisible(...els) {
   const live = els.filter((el) => el && !el.closest('.rail, .tabbar, .mtop, .notices, .modal'));
   const u = unionRect(live);
   if (!u) return;
-  const v = viewBand();
+  const v = viewBand(live);
   if (u.top >= v.top && u.bottom <= v.bottom) return;
   const room = v.bottom - v.top;
   const top = app.isDesktop() && u.height < room ? v.top + (room - u.height) / 2 : v.top + 8;

@@ -101,7 +101,7 @@ Bundled unchanged in [`public/sample-pack/`](public/sample-pack/).
 
 ## 🖥️ Feature tour
 
-Step-by-step frames from the live UI (**1280×800 viewport**, ink sidebar + one step in view — not full-page scroll captures). Click any image for the full PNG.
+Step-by-step frames from the **mobile** UI (iPhone-sized viewport · bottom tab bar · one step per screen). Click any image for the full PNG.
 
 <table>
 <tr>
