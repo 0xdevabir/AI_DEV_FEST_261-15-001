@@ -7,6 +7,7 @@ import {
 import { sha256, looksLikePdf, inspectPdf, thumbnail, buildPackage } from './pdf.js';
 import { saveProject, loadProject, clearProject, exportProjectFile, importProjectFile } from './storage.js';
 import { logoMark } from './logo.js';
+import { Idiomorph } from 'idiomorph';
 
 const MAX_FILES = 30;
 const MAX_MB = 50;
@@ -38,13 +39,36 @@ function notify(kind, key, vars = {}) {
   if (ui.notices.length > 6) ui.notices.shift();
   // Errors stay until closed; other toasts fade out so they never sit on top of buttons.
   if (kind !== 'error') {
-    setTimeout(() => {
-      ui.notices = ui.notices.filter((n) => n.id !== id);
-      // Remove just the toast (no full re-render, so typing focus is kept).
-      $app.querySelector(`[data-act="dismiss"][data-id="${id}"]`)?.closest('.notice')?.remove();
-      if (!ui.notices.length) $app.querySelector('.notices')?.remove();
-    }, 6000);
+    setTimeout(() => dismissNotice(id), 6000);
   }
+}
+
+/** Run a CSS exit animation (`cls`) on `el`, then `done`. Falls back to a timer if no animation fires. */
+function animateOut(el, cls, done) {
+  if (!el || el.classList.contains(cls) || matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+  let fired = false;
+  const finish = () => !fired && ((fired = true), done());
+  el.classList.add(cls);
+  el.addEventListener('animationend', (e) => e.target === el && finish());
+  setTimeout(finish, 450);
+}
+
+/** Slide a toast out, then drop it. The morph keeps focus and typed text, so this is safe mid-typing. */
+function dismissNotice(id) {
+  if (!ui.notices.some((n) => n.id === id)) return;
+  animateOut(document.getElementById(`n-${id}`), 'leaving', () => {
+    ui.notices = ui.notices.filter((n) => n.id !== id);
+    render();
+  });
+}
+
+function closePreview() {
+  if (!ui.preview) return;
+  animateOut($app.querySelector('.modal'), 'closing', () => {
+    if (ui.preview) URL.revokeObjectURL(ui.preview);
+    ui.preview = null;
+    render();
+  });
 }
 
 /** Remember the current matches/expiries so the next change can be undone. */
@@ -224,7 +248,17 @@ function askConfirm(message, okLabel) {
         <button class="btn" value="cancel" autofocus>${t('cancel')}</button>
         <button class="btn danger" value="ok">${esc(okLabel)}</button>
       </div></form>`;
-    dlg.addEventListener('click', (e) => e.target === dlg && dlg.close('cancel')); // backdrop click
+    // Animate the sheet away before actually closing (buttons, backdrop click and Esc all go through here).
+    const leave = (value) => animateOut(dlg, 'closing', () => dlg.open && dlg.close(value));
+    dlg.querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      leave(e.submitter?.value || 'cancel');
+    });
+    dlg.addEventListener('cancel', (e) => {
+      e.preventDefault();
+      leave('cancel');
+    });
+    dlg.addEventListener('click', (e) => e.target === dlg && leave('cancel')); // backdrop click
     dlg.addEventListener('close', () => {
       resolve(dlg.returnValue === 'ok');
       dlg.remove();
@@ -493,7 +527,7 @@ function ring(ok, total) {
   const C = 2 * Math.PI * 26;
   return `<svg class="ring" viewBox="0 0 64 64" aria-hidden="true">
     <circle cx="32" cy="32" r="26" class="ring-track"/>
-    <circle cx="32" cy="32" r="26" class="ring-fill${p === 1 ? ' full' : ''}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p)}"/>
+    <circle cx="32" cy="32" r="26" class="ring-fill${p === 1 ? ' full' : ''}" stroke-dasharray="${C}" style="stroke-dashoffset:${C * (1 - p)}"/>
   </svg>`;
 }
 
@@ -563,15 +597,14 @@ function viewHelp() {
 function viewTabbar() {
   const info = stepInfo();
   const i = TABS.indexOf(ui.tab);
-  const from = ui.tabFrom ?? i; // the active pill slides only right after a tab switch
   const badge = {
     files: project.files.length ? `<span class="tb-badge">${num(project.files.length)}</span>` : '',
     match: info.match.bad ? `<span class="tb-badge bad">${num(info.counts.block)}</span>` : '',
     package: info.match.done ? '<span class="tb-dot"></span>' : '',
   };
   return `
-  <nav class="tabbar" aria-label="${t('steps_nav')}" style="--i:${i};--from:${from}">
-    <span class="tb-pill${from !== i ? ' slide' : ''}" aria-hidden="true"></span>
+  <nav class="tabbar" aria-label="${t('steps_nav')}" style="--i:${i}">
+    <span class="tb-pill" aria-hidden="true"></span>
     ${TABS.map((k) => `<button class="tb${ui.tab === k ? ' on' : ''}" data-act="tab" data-tab="${k}" aria-current="${ui.tab === k ? 'page' : 'false'}">
       <span class="tb-ico">${icon(k)}${badge[k] || ''}</span><span class="tb-lbl">${t(`tab_${k}`)}</span>
     </button>`).join('')}
@@ -600,7 +633,7 @@ function viewNeedReq(k, n) {
 function viewNotices() {
   if (!ui.notices.length) return '';
   return `<div class="notices" role="status" aria-live="polite">${ui.notices
-    .map((n) => `<div class="notice ${n.kind}"><span>${esc(t(n.key, n.vars))}</span><button class="x" data-act="dismiss" data-id="${n.id}" aria-label="${t('close')}">×</button></div>`)
+    .map((n) => `<div class="notice ${n.kind}" id="n-${n.id}"><span>${esc(t(n.key, n.vars))}</span><button class="x" data-act="dismiss" data-id="${n.id}" aria-label="${t('close')}">×</button></div>`)
     .join('')}</div>`;
 }
 
@@ -635,7 +668,7 @@ function viewFiles() {
       const reqId = reqOfFile(project.matches, f.id);
       const req = project.reqs?.requirements.find((r) => r.id === reqId);
       const thumb = ui.thumbs[f.id] && ui.thumbs[f.id] !== 'x' ? ui.thumbs[f.id] : '';
-      return `<tr class="${dups[f.id] ? 'dup-row' : ''}" draggable="true" data-file="${f.id}" title="${esc(t('drag_hint'))}">
+      return `<tr id="f-${f.id}" class="${dups[f.id] ? 'dup-row' : ''}" draggable="true" data-file="${f.id}" title="${esc(t('drag_hint'))}">
         <td class="thumb c-thumb"><img data-thumb="${f.id}" src="${thumb}" alt="" ${thumb ? '' : 'class="blank"'}></td>
         <td class="c-name">
           <div class="fname">${esc(f.name)}</div>
@@ -722,7 +755,7 @@ function viewRequirements() {
         }
       }
       const why = s === STATUS.EXPIRED ? t('why_expired', { date: project.expiries[r.id], deadline }) : '';
-      return `<tr class="st-${s}" data-req-drop="${r.id}">
+      return `<tr id="r-${r.id}" class="st-${s}" data-req-drop="${r.id}">
         <td class="num c-order">${num(r.order)}</td>
         <td class="c-doc">
           <div class="rtitle">${esc(reqTitle(r))}</div>
@@ -833,26 +866,38 @@ function viewPreview() {
 function render() {
   document.documentElement.lang = getLang();
   document.title = t('app_title');
-  const scroll = window.scrollY;
   $app.dataset.tab = ui.tab;
-  $app.innerHTML = `<div class="shell">${viewRail()}
+  // Morph the DOM instead of replacing it: unchanged nodes (iframes, images, focused fields) stay put,
+  // entrance animations don't replay and CSS transitions (ring, tab pill, step dots) can actually run.
+  Idiomorph.morph($app, `<div class="shell">${viewRail()}
     <div class="main">${viewMobileTop()}${viewHero()}${viewHelp()}
       ${viewTender()}${viewFiles()}${viewRequirements()}${viewGenerate()}
       <footer class="site-foot">
         <div class="foot-brand">${logoMark({ className: 'foot-mark', size: 22 })} <span>${t('app_title')}</span></div>
         <p class="foot-note">${t('footer')}</p>
       </footer>
-    </div></div>${viewTabbar()}${viewNotices()}${viewPreview()}`;
-  window.scrollTo(0, scroll);
+    </div></div>${viewTabbar()}${viewNotices()}${viewPreview()}`, MORPH);
   syncStickyTop();
-  onScroll();
+  updateScroll();
   if (ui.tabFrom != null) {
+    // Restart the step-switch animation, sliding in from the side of travel (iOS push / pop).
+    $app.dataset.dir = TABS.indexOf(ui.tab) >= ui.tabFrom ? 'fwd' : 'back';
     ui.tabFrom = null;
+    $app.classList.remove('tab-enter');
+    void $app.offsetWidth;
     $app.classList.add('tab-enter');
     clearTimeout(tabEnterTimer);
     tabEnterTimer = setTimeout(() => $app.classList.remove('tab-enter'), 600);
   }
 }
+const MORPH = {
+  morphStyle: 'innerHTML',
+  ignoreActiveValue: true, // never overwrite what the user is typing
+  callbacks: {
+    // A <details> the user opened stays open across re-renders.
+    beforeAttributeUpdated: (attr, el, type) => !(attr === 'open' && type === 'remove' && el.tagName === 'DETAILS'),
+  },
+};
 let tabEnterTimer;
 
 const isDesktop = () => window.matchMedia('(min-width: 900px)').matches;
@@ -866,7 +911,16 @@ function syncStickyTop() {
 window.addEventListener('resize', syncStickyTop);
 
 /** iOS nav bar collapse on phones; scroll-spy of the step rail on desktop (no re-render). */
+let scrollQueued = false;
 function onScroll() {
+  if (scrollQueued) return;
+  scrollQueued = true;
+  requestAnimationFrame(() => {
+    scrollQueued = false;
+    updateScroll();
+  });
+}
+function updateScroll() {
   const large = $app.querySelector('.mlarge');
   $app.querySelector('.mtop')?.classList.toggle('scrolled', !!large && large.getBoundingClientRect().bottom < 60);
   if (!isDesktop()) return;
@@ -915,8 +969,7 @@ $app.addEventListener('click', (e) => {
       ui.showHelp = !ui.showHelp;
       return render();
     case 'dismiss':
-      ui.notices = ui.notices.filter((n) => n.id !== id);
-      return render();
+      return dismissNotice(id);
     case 'sample':
       return loadSamplePack();
     case 'remove':
@@ -939,9 +992,7 @@ $app.addEventListener('click', (e) => {
     }
     case 'close-preview':
       if (el.classList.contains('modal') && e.target !== el) return; // clicks inside the box
-      if (ui.preview) URL.revokeObjectURL(ui.preview);
-      ui.preview = null;
-      return render();
+      return closePreview();
     case 'unmatch':
       return setMatch(el.dataset.req, '');
     case 'use-expiry':
@@ -987,6 +1038,14 @@ $app.addEventListener('change', async (e) => {
   const el = e.target;
   const kind = el.dataset.in;
   if (!kind) return;
+  try {
+    await handleChange(el, kind);
+  } finally {
+    if (el.type === 'file') el.value = ''; // morphing keeps this input, so re-picking the same file must still fire
+  }
+});
+
+async function handleChange(el, kind) {
   if (kind === 'req' && el.files[0]) {
     loadRequirementsJson(await el.files[0].text());
   } else if (kind === 'files' && el.files.length) {
@@ -1039,7 +1098,7 @@ $app.addEventListener('change', async (e) => {
       render();
     }
   }
-});
+}
 
 $app.addEventListener('input', (e) => {
   if (e.target.id === 'ai-key') {
@@ -1097,11 +1156,7 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
-  if (e.key === 'Escape' && ui.preview) {
-    URL.revokeObjectURL(ui.preview);
-    ui.preview = null;
-    render();
-  }
+  if (e.key === 'Escape' && ui.preview) closePreview();
 });
 
 // ---------------- Boot ----------------
