@@ -6,6 +6,7 @@ import {
 } from './logic.js';
 import { sha256, looksLikePdf, inspectPdf, thumbnail, buildPackage } from './pdf.js';
 import { saveProject, loadProject, clearProject, exportProjectFile, importProjectFile } from './storage.js';
+import { brandLockup, logoMark } from './logo.js';
 
 const MAX_FILES = 30;
 const MAX_MB = 50;
@@ -22,6 +23,7 @@ const ui = {
   aiText: '',
   aiBusy: false,
   preview: null, // object URL of file being previewed
+  history: [], // undo stack of { matches, expiries } snapshots
 };
 
 const $app = document.getElementById('app');
@@ -32,6 +34,24 @@ const fmtSize = (b) => (b > 1048576 ? `${num((b / 1048576).toFixed(1))} MB` : `$
 function notify(kind, key, vars = {}) {
   ui.notices.push({ kind, key, vars, id: uid() });
   if (ui.notices.length > 6) ui.notices.shift();
+}
+
+/** Remember the current matches/expiries so the next change can be undone. */
+function remember() {
+  ui.history.push({ matches: { ...project.matches }, expiries: { ...project.expiries } });
+  if (ui.history.length > 50) ui.history.shift();
+}
+
+function undo() {
+  const prev = ui.history.pop();
+  if (!prev) return;
+  // A file may have been removed since; never restore a match to a file that is gone.
+  const ids = new Set(project.files.map((f) => f.id));
+  const keep = Object.entries(prev.matches).filter(([, fid]) => ids.has(fid));
+  project.matches = Object.fromEntries(keep);
+  project.expiries = Object.fromEntries(Object.entries(prev.expiries).filter(([r]) => project.matches[r]));
+  notify('info', 'undone');
+  changed();
 }
 
 let saveTimer;
@@ -145,6 +165,7 @@ async function loadSamplePack() {
     project = emptyProject();
     ui.notices = [];
     ui.thumbs = {};
+    ui.history = [];
     loadRequirementsJson(reqText);
     const files = [];
     for (const name of manifest.documents) {
@@ -166,8 +187,10 @@ async function loadSamplePack() {
 // ---------------- Actions ----------------
 
 function setMatch(reqId, fileId) {
+  if ((project.matches[reqId] || '') === (fileId || '')) return;
   try {
     const r = applyMatch(project, reqId, fileId);
+    remember();
     project.matches = r.matches;
     project.expiries = r.expiries;
   } catch (e) {
@@ -192,6 +215,7 @@ function removeFile(fileId) {
 function autoMatch() {
   const sug = suggestMatches(project);
   const n = Object.keys(sug).length;
+  if (n) remember(); // one undo step reverts the whole auto-match
   for (const [reqId, fileId] of Object.entries(sug)) {
     const r = applyMatch(project, reqId, fileId);
     project.matches = r.matches;
@@ -374,7 +398,7 @@ function viewHeader() {
   return `
   <header class="top">
     <div>
-      <h1>${t('app_title')}</h1>
+      ${brandLockup(t('app_title'))}
       <p class="sub">${t('app_sub')}</p>
     </div>
     <div class="top-actions">
@@ -424,7 +448,7 @@ function viewFiles() {
       const reqId = reqOfFile(project.matches, f.id);
       const req = project.reqs?.requirements.find((r) => r.id === reqId);
       const thumb = ui.thumbs[f.id] && ui.thumbs[f.id] !== 'x' ? ui.thumbs[f.id] : '';
-      return `<tr class="${dups[f.id] ? 'dup-row' : ''}">
+      return `<tr class="${dups[f.id] ? 'dup-row' : ''}" draggable="true" data-file="${f.id}" title="${esc(t('drag_hint'))}">
         <td class="thumb"><img data-thumb="${f.id}" src="${thumb}" alt="" ${thumb ? '' : 'class="blank"'}></td>
         <td>
           <div class="fname">${esc(f.name)}</div>
@@ -477,6 +501,20 @@ function fileOptions(req) {
   return opts.join('');
 }
 
+/** Unmatched files as draggable chips, kept in view above the requirement rows. */
+function viewFileTray() {
+  if (!project.files.length) return '';
+  const dups = duplicateGroups(project.files);
+  const free = project.files.filter((f) => !reqOfFile(project.matches, f.id));
+  const chips = free
+    .map((f) => `<span class="chip${dups[f.id] ? ' dup' : ''}" draggable="true" data-file="${f.id}" title="${esc(t('drag_hint'))}">⠿ ${esc(f.name)} · ${num(f.pages)} ${t('pages')}</span>`)
+    .join('');
+  return `<div class="file-tray">
+    <p class="muted-text drag-tip">${t('drag_tip')}</p>
+    ${free.length ? `<div class="chips">${chips}</div>` : `<p class="muted-text">${t('all_files_used')}</p>`}
+  </div>`;
+}
+
 function viewRequirements() {
   if (!project.reqs) return '';
   const st = allStatuses(project);
@@ -506,7 +544,7 @@ function viewRequirements() {
         }
       }
       const why = s === STATUS.EXPIRED ? t('why_expired', { date: project.expiries[r.id], deadline }) : '';
-      return `<tr class="st-${s}">
+      return `<tr class="st-${s}" data-req-drop="${r.id}">
         <td class="num">${num(r.order)}</td>
         <td>
           <div class="rtitle">${esc(reqTitle(r))}</div>
@@ -526,9 +564,13 @@ function viewRequirements() {
   <section class="card">
     <div class="card-head">
       <h2>${t('step3')}</h2>
-      <button class="btn" data-act="auto" ${project.files.length ? '' : 'disabled'}>✨ ${t('auto_match')}</button>
+      <div class="row">
+        <button class="btn" data-act="undo" ${ui.history.length ? '' : 'disabled'} title="Ctrl/⌘ + Z">↶ ${t('undo')}</button>
+        <button class="btn" data-act="auto" ${project.files.length ? '' : 'disabled'}>✨ ${t('auto_match')}</button>
+      </div>
     </div>
     <p class="summary ${counts.block ? 'has-block' : 'all-clear'}">${t('summary', counts)}</p>
+    ${viewFileTray()}
     <div class="table-wrap"><table class="reqs">
       <thead><tr><th class="num">${t('order')}</th><th>${t('document')}</th><th>${t('file')}</th><th>${t('expiry')}</th><th>${t('status')}</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -618,9 +660,22 @@ function render() {
   document.title = t('app_title');
   const scroll = window.scrollY;
   $app.innerHTML = `${viewHeader()}${viewNotices()}${viewTender()}${viewFiles()}${viewRequirements()}${viewGenerate()}
-    <footer>${t('footer')}</footer>${viewPreview()}`;
+    <footer class="site-foot">
+      <div class="foot-brand">${logoMark({ className: 'foot-mark', size: 22 })} <span>${t('app_title')}</span></div>
+      <p class="foot-note">${t('footer')}</p>
+    </footer>${viewPreview()}`;
   window.scrollTo(0, scroll);
+  syncStickyTop();
 }
+
+/** Keep sticky elements (the file tray) just below the sticky header, whatever its height. */
+function syncStickyTop() {
+  const head = $app.querySelector('header.top');
+  if (!head) return;
+  const top = parseFloat(getComputedStyle(head).top) || 0;
+  document.documentElement.style.setProperty('--sticky-top', `${Math.ceil(head.offsetHeight + top + 8)}px`);
+}
+window.addEventListener('resize', syncStickyTop);
 
 // ---------------- Events (delegated) ----------------
 
@@ -664,10 +719,13 @@ $app.addEventListener('click', (e) => {
     case 'unmatch':
       return setMatch(el.dataset.req, '');
     case 'use-expiry':
+      remember();
       project.expiries = { ...project.expiries, [el.dataset.req]: el.dataset.date };
       return changed();
     case 'auto':
       return autoMatch();
+    case 'undo':
+      return undo();
     case 'generate':
       return generate();
     case 'csv':
@@ -682,6 +740,7 @@ $app.addEventListener('click', (e) => {
       project = emptyProject();
       ui.notices = [];
       ui.thumbs = {};
+      ui.history = [];
       clearProject();
       return changed();
     case 'ai':
@@ -701,6 +760,7 @@ $app.addEventListener('change', async (e) => {
     setMatch(el.dataset.req, el.value);
   } else if (kind === 'expiry') {
     const v = el.value;
+    remember();
     const exp = { ...project.expiries };
     if (v) exp[el.dataset.req] = v;
     else delete exp[el.dataset.req];
@@ -736,6 +796,7 @@ $app.addEventListener('change', async (e) => {
     try {
       project = importProjectFile(await el.files[0].text());
       ui.thumbs = {};
+      ui.history = [];
       changed();
       loadThumbs();
     } catch {
@@ -753,15 +814,36 @@ $app.addEventListener('input', (e) => {
   }
 });
 
-// Drag & drop anywhere on the drop zone
-$app.addEventListener('dragover', (e) => {
-  const z = e.target.closest('[data-drop]');
-  if (!z) return;
-  e.preventDefault();
-  z.classList.add('over');
+// Drag & drop: PDFs from the computer onto the drop zone, or an uploaded file row onto a requirement row.
+const FILE_MIME = 'application/x-tpb-file';
+const isFileRowDrag = (e) => e.dataTransfer?.types.includes(FILE_MIME);
+$app.addEventListener('dragstart', (e) => {
+  const row = e.target.closest?.('[data-file]');
+  if (!row) return;
+  e.dataTransfer.setData(FILE_MIME, row.dataset.file);
+  e.dataTransfer.effectAllowed = 'link';
+  document.body.classList.add('dragging-file');
 });
-$app.addEventListener('dragleave', (e) => e.target.closest('[data-drop]')?.classList.remove('over'));
+$app.addEventListener('dragend', () => document.body.classList.remove('dragging-file'));
+$app.addEventListener('dragover', (e) => {
+  const target = isFileRowDrag(e) ? e.target.closest('[data-req-drop]') : e.target.closest('[data-drop]');
+  if (!target) return;
+  e.preventDefault();
+  target.classList.add('over');
+});
+$app.addEventListener('dragleave', (e) => {
+  const z = e.target.closest('[data-drop], [data-req-drop]');
+  if (z && !z.contains(e.relatedTarget)) z.classList.remove('over');
+});
 $app.addEventListener('drop', (e) => {
+  document.body.classList.remove('dragging-file');
+  if (isFileRowDrag(e)) {
+    const row = e.target.closest('[data-req-drop]');
+    if (!row) return;
+    e.preventDefault();
+    row.classList.remove('over');
+    return setMatch(row.dataset.reqDrop, e.dataTransfer.getData(FILE_MIME));
+  }
   const z = e.target.closest('[data-drop]');
   if (!z) return;
   e.preventDefault();
@@ -772,6 +854,14 @@ $app.addEventListener('drop', (e) => {
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => e.preventDefault());
 document.addEventListener('keydown', (e) => {
+  // Ctrl/Cmd+Z undoes the last match change, but never steals undo from a text field.
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !e.target.closest('input, textarea, select')) {
+    if (ui.history.length) {
+      e.preventDefault();
+      undo();
+    }
+    return;
+  }
   if (e.key === 'Escape' && ui.preview) {
     URL.revokeObjectURL(ui.preview);
     ui.preview = null;

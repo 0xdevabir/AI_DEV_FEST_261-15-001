@@ -241,7 +241,7 @@ export async function buildPackage(tender, docs, options = {}) {
   pdf.setTitle(`${ansi(tender.tender_id)} Package`);
   pdf.setSubject(ansi(tender.title));
   pdf.setAuthor(ansi(tender.bidder));
-  pdf.setCreator('Tender Package Builder');
+  pdf.setCreator('TenderNest');
   const fonts = { bold: await pdf.embedFont(StandardFonts.HelveticaBold), reg: await pdf.embedFont(StandardFonts.Helvetica) };
 
   const madeOn = options.madeOn || new Date().toISOString().slice(0, 10);

@@ -1,7 +1,7 @@
 // Every visible string lives here, in English and Bangla.
 const en = {
-  app_title: 'Tender Package Builder',
-  app_sub: 'Turn your tender documents into one checked, correctly ordered PDF — all inside your browser.',
+  app_title: 'TenderNest',
+  app_sub: 'Tender requirements in. One checked, ordered package PDF out — all in your browser.',
   privacy: 'Your files never leave this computer. Nothing is uploaded to any server.',
   lang_switch: 'বাংলা',
   help: 'How to use',
@@ -51,6 +51,11 @@ const en = {
   expiry_na: 'No expiry',
   status: 'Status',
   unmatch: 'Undo match',
+  undo: 'Undo',
+  undone: 'Last change undone.',
+  drag_hint: 'Drag this file onto a document below to match it',
+  drag_tip: 'Pick a file in each row, or drag an unused file below onto a document row. Ctrl/⌘+Z undoes the last change.',
+  all_files_used: 'Every uploaded file is matched.',
   auto_match: 'Auto-match by file names',
   auto_matched: 'Auto-match suggested {n} match(es). Please check them.',
   auto_none: 'No new matches could be suggested. Please match the remaining files by hand.',
@@ -123,8 +128,8 @@ const en = {
 };
 
 const bn = {
-  app_title: 'টেন্ডার প্যাকেজ বিল্ডার',
-  app_sub: 'টেন্ডারের সব কাগজপত্র থেকে একটি যাচাই-করা, সঠিক ক্রমের PDF তৈরি করুন — সবকিছু আপনার ব্রাউজারেই।',
+  app_title: 'টেন্ডারনেস্ট',
+  app_sub: 'টেন্ডারের প্রয়োজনীয়তা থেকে একটি যাচাই-করা, সঠিক ক্রমের প্যাকেজ PDF — সবকিছু আপনার ব্রাউজারেই।',
   privacy: 'আপনার ফাইল এই কম্পিউটারের বাইরে যায় না। কোনো সার্ভারে আপলোড হয় না।',
   lang_switch: 'English',
   help: 'কীভাবে ব্যবহার করবেন',
@@ -174,6 +179,11 @@ const bn = {
   expiry_na: 'মেয়াদ নেই',
   status: 'অবস্থা',
   unmatch: 'মেলানো বাতিল',
+  undo: 'পূর্বাবস্থা',
+  undone: 'শেষ পরিবর্তনটি বাতিল করা হয়েছে।',
+  drag_hint: 'মেলাতে এই ফাইলটি নিচের কোনো ডকুমেন্টে টেনে আনুন',
+  drag_tip: 'প্রতিটি সারিতে ফাইল বাছুন, অথবা নিচের অব্যবহৃত ফাইল টেনে ডকুমেন্টের সারিতে ছাড়ুন। Ctrl/⌘+Z শেষ পরিবর্তন বাতিল করে।',
+  all_files_used: 'আপলোড করা সব ফাইল মেলানো হয়েছে।',
   auto_match: 'ফাইলের নাম দেখে অটো-ম্যাচ',
   auto_matched: 'অটো-ম্যাচ {n}টি মিল প্রস্তাব করেছে। অনুগ্রহ করে যাচাই করুন।',
   auto_none: 'নতুন কোনো মিল পাওয়া যায়নি। বাকি ফাইলগুলো নিজে মেলান।',
