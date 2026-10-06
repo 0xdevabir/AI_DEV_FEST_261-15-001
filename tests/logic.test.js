@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   STATUS, parseRequirements, statusOf, blockingProblems, duplicateGroups, canMatch,
-  applyMatch, suggestMatches, detectExpiry, parsePageList, csvEscape,
-} from '../src/logic.js';
+  applyMatch, suggestMatches, detectExpiry, parsePageList, csvEscape, contentWarnings,
+}from '../src/logic.js';
 
 const sample = JSON.parse(readFileSync(new URL('../public/sample-pack/requirements.json', import.meta.url)));
 const reqs = parseRequirements(sample);
@@ -91,6 +91,24 @@ test('expiry detection', () => {
   assert.equal(detectExpiry('Expiry Date 2027-06-30'), '2027-06-30');
   assert.equal(detectExpiry('validity 31/12/2026'), '2026-12-31');
   assert.equal(detectExpiry('Issued 2024-01-01'), null);
+  assert.equal(detectExpiry('Valid through June 30, 2027'), '2027-06-30');
+  assert.equal(detectExpiry('Expiry date: 30-06-2027'), '2027-06-30');
+  assert.equal(detectExpiry('Valid until 2027/06/30'), '2027-06-30');
+  assert.equal(detectExpiry('Valid until the 5th March 2027'), '2027-03-05');
+  assert.equal(detectExpiry('মেয়াদ: ৩০/০৬/২০২৭'), '2027-06-30');
+  assert.equal(detectExpiry('Valid until 45/13/2027'), null, 'impossible dates are ignored');
+});
+
+test('content warnings: other tender id and a file that looks like another document', () => {
+  const p = proj([
+    file('f1', 'TIN Certificate.pdf', 'h1', { textSample: 'Ref T-2026-0981 and T-2026-0417' }),
+    file('f2', 'scan.pdf', 'h2', { textSample: 'For tender T-2026-0417 only' }),
+  ], { R01: 'f1', R02: 'f2' });
+  const w = contentWarnings(p);
+  assert.deepEqual(w.R01.map((x) => x.key).sort(), ['warn_looks_like', 'warn_tender']);
+  assert.equal(w.R01.find((x) => x.key === 'warn_tender').found, 'T-2026-0981');
+  assert.equal(w.R01.find((x) => x.key === 'warn_looks_like').reqId, 'R02');
+  assert.equal(w.R02, undefined, 'own tender id and a vague name are fine');
 });
 
 test('page list parsing and CSV escaping', () => {

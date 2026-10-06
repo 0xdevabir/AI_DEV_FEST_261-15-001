@@ -1,6 +1,8 @@
 /**
  * Capture README screenshots against the current TenderNest UI.
- *   node scripts/capture-screenshots.mjs
+ *   SHOT_URL=https://tendernest.devabir.me/ node scripts/capture-screenshots.mjs
+ *
+ * Uses a fixed viewport (sidebar + one step visible), not full-page scroll shots.
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
@@ -12,8 +14,10 @@ const OUT = join(__dirname, '..', 'screenshots');
 const BASE = process.env.SHOT_URL || 'http://localhost:5173/';
 mkdirSync(OUT, { recursive: true });
 
-const shot = async (page, name, fullPage = true) => {
-  await page.screenshot({ path: join(OUT, name), fullPage, animations: 'disabled' });
+const shot = async (page, name) => {
+  await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: 'instant' }));
+  await page.waitForTimeout(120);
+  await page.screenshot({ path: join(OUT, name), fullPage: false, animations: 'disabled' });
   console.log('wrote', name);
 };
 
@@ -23,11 +27,18 @@ const tab = async (page, name) => {
   await page.waitForTimeout(350);
 };
 
+const shotStep = async (page, step, name) => {
+  await tab(page, step);
+  await page.locator(`#sec-${step}`).scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(280);
+  await shot(page, name);
+};
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    viewport: { width: 1440, height: 960 },
-    deviceScaleFactor: 2,
+    viewport: { width: 1280, height: 800 },
+    deviceScaleFactor: 1.5,
     reducedMotion: 'reduce',
     locale: 'en-US',
   });
@@ -47,27 +58,20 @@ async function main() {
   });
   await page.waitForTimeout(500);
 
-  await tab(page, 'tender');
-  await shot(page, '00_home_empty.png');
+  await shotStep(page, 'tender', '00_home_empty.png');
 
   await page.locator('[data-act="sample"]').first().click();
   await page.waitForTimeout(2800);
-  await shot(page, '01_sample_loaded_all_missing.png');
+  await shotStep(page, 'tender', '01_sample_loaded_all_missing.png');
 
-  await tab(page, 'files');
-  await page.waitForTimeout(400);
-  await shot(page, '01b_files_uploaded.png');
+  await shotStep(page, 'files', '01b_files_uploaded.png');
 
-  await tab(page, 'match');
-  await page.waitForTimeout(400);
-  // before auto-match — mostly missing
-  await shot(page, '01c_match_before.png');
+  await shotStep(page, 'match', '01c_match_before.png');
 
   await page.locator('[data-act="auto"]').first().click();
   await page.waitForTimeout(1000);
-  await shot(page, '02_after_auto_match.png');
+  await shotStep(page, 'match', '02_after_auto_match.png');
 
-  // Accept detected expiry suggestions
   const useBtns = page.locator('[data-act="use-expiry"]');
   const nUse = await useBtns.count();
   for (let i = 0; i < nUse; i++) {
@@ -75,7 +79,6 @@ async function main() {
     await page.waitForTimeout(150);
   }
 
-  // Match remaining empty selects (e.g. scan → Signed Declaration)
   const selects = page.locator('select[data-in="match"]');
   const sc = await selects.count();
   for (let i = 0; i < sc; i++) {
@@ -93,45 +96,33 @@ async function main() {
     }
   }
   await page.waitForTimeout(500);
-  await shot(page, '07_all_ok_drag_match_summary.png');
+  await shotStep(page, 'match', '07_all_ok_drag_match_summary.png');
 
-  await tab(page, 'package');
-  await page.waitForTimeout(500);
-  // If blockers remain, this captures the blocked package panel
-  await shot(page, '03_expired_blocks_generate.png');
+  await shotStep(page, 'package', '03_expired_blocks_generate.png');
 
   const gen = page.locator('[data-act="generate"]').first();
   const canGen = (await gen.count()) && !(await gen.isDisabled());
   if (canGen) {
-    await shot(page, '04_all_ok_ready_en.png');
+    await shotStep(page, 'package', '04_all_ok_ready_en.png');
     await gen.click();
     await page.waitForTimeout(5000);
-    await shot(page, '05_generated_en.png');
-    // refresh ready hero without preview scroll noise — package with download
-    await shot(page, '04_all_ok_ready_en.png');
+    await shotStep(page, 'package', '05_generated_en.png');
   } else {
     console.log('Generate still disabled — capturing current package/match as ready fallback');
-    await tab(page, 'match');
-    await shot(page, '04_all_ok_ready_en.png');
-    await tab(page, 'package');
-    await shot(page, '05_generated_en.png');
+    await shotStep(page, 'match', '04_all_ok_ready_en.png');
+    await shotStep(page, 'package', '05_generated_en.png');
   }
 
-  // Bangla
-  await page.locator('[data-act="lang"][data-lang="bn"]').click();
+  await page.locator('[data-act="lang"][data-lang="bn"]').first().click();
   await page.waitForTimeout(500);
-  await tab(page, 'match');
-  await shot(page, '06_bangla_ui.png');
-  await tab(page, 'package');
-  await shot(page, '08_bangla_all_ok.png');
+  await shotStep(page, 'match', '06_bangla_ui.png');
+  await shotStep(page, 'package', '08_bangla_all_ok.png');
 
-  // Help panel
-  await page.locator('[data-act="lang"][data-lang="en"]').click();
+  await page.locator('[data-act="lang"][data-lang="en"]').first().click();
   await page.waitForTimeout(300);
   await page.locator('[data-act="help"]').first().click();
   await page.waitForTimeout(400);
-  await tab(page, 'tender');
-  await shot(page, '09_confirm_dialog.png');
+  await shotStep(page, 'tender', '09_confirm_dialog.png');
 
   await browser.close();
   console.log('done →', OUT);

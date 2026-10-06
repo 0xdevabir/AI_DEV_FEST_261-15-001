@@ -223,22 +223,64 @@ export function suggestMatches(project) {
 /** Find an expiry date in extracted PDF text. Returns 'YYYY-MM-DD' or null. */
 export function detectExpiry(text) {
   if (!text) return null;
-  const t = text.replace(/\s+/g, ' ');
-  const kw = /(valid\s+(until|till|upto|up to|through)|expiry\s+date|expires?\s+(on)?|date\s+of\s+expiry|validity)/i;
+  // Bangla digits → ASCII, so "৩০/০৬/২০২৭" is read like "30/06/2027".
+  const t = text.replace(/\s+/g, ' ').replace(/[০-৯]/g, (d) => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
+  const kw = /(valid\s+(until|till|upto|up to|through|thru)|expiry\s+date|expiration(\s+date)?|expires?\s+(on)?|date\s+of\s+expiry|validity|মেয়াদ|মেয়াদ)/i;
   const m = kw.exec(t);
   if (!m) return null;
   const tail = t.slice(m.index, m.index + 160);
-  const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(tail);
-  if (iso) return iso[0];
   const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-  const dmy = /(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})/.exec(tail);
-  if (dmy) {
-    const mi = MONTHS.indexOf(dmy[2].slice(0, 3).toLowerCase());
-    if (mi >= 0) return `${dmy[3]}-${String(mi + 1).padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  const month = (s) => MONTHS.indexOf(s.slice(0, 3).toLowerCase()) + 1;
+  // Every date shape we know, as [regex, (match) => [y, m, d]]. The one closest to the keyword wins.
+  const shapes = [
+    [/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/, (x) => [x[1], x[2], x[3]]], // 2027-06-30, 2027/06/30
+    [/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})/, (x) => [x[3], month(x[2]), x[1]]], // 30 June 2027
+    [/([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/, (x) => [x[3], month(x[1]), x[2]]], // June 30, 2027
+    [/(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/, (x) => [x[3], x[2], x[1]]], // 30/06/2027, 30-06-2027 (day first)
+  ];
+  let best = null;
+  for (const [re, parts] of shapes) {
+    const x = re.exec(tail);
+    if (!x || (best && best.index <= x.index)) continue;
+    const [y, mo, d] = parts(x).map(Number);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) best = { index: x.index, date: `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}` };
   }
-  const num = /(\d{1,2})[./](\d{1,2})[./](\d{4})/.exec(tail);
-  if (num) return `${num[3]}-${num[2].padStart(2, '0')}-${num[1].padStart(2, '0')}`;
-  return null;
+  return best?.date ?? null;
+}
+
+/** How well a file (name or first-page text) fits a requirement, 0..1. */
+function fileFit(f, r) {
+  return Math.max(scoreName(f.name, r.title_en), f.textTitle ? scoreName(f.textTitle, r.title_en) * 0.9 : 0);
+}
+
+/**
+ * Content checks for matched files. They never change a status (Section 5 stays exact) — they are
+ * "please double-check" hints for a wrong file in the right row.
+ * Returns { [reqId]: [{ key: 'warn_tender', found } | { key: 'warn_looks_like', reqId }] }.
+ */
+export function contentWarnings(project) {
+  const out = {};
+  if (!project.reqs) return out;
+  const { requirements, tender } = project.reqs;
+  const id = tender.tender_id;
+  // Same shape as our tender id (letters kept, each digit → any digit), e.g. T-2026-0417 → T-\d\d\d\d-\d\d\d\d.
+  const idRe = (id.match(/\d/g) || []).length >= 3
+    ? new RegExp(`(?<![A-Za-z0-9])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\d/g, '\\d')}(?![0-9])`, 'gi')
+    : null;
+  for (const r of requirements) {
+    const f = project.files.find((x) => x.id === project.matches[r.id]);
+    if (!f) continue;
+    const list = [];
+    const text = f.textSample || f.textTitle || '';
+    const other = idRe && [...text.matchAll(idRe)].map((m) => m[0]).find((s) => s.toLowerCase() !== id.toLowerCase());
+    if (other) list.push({ key: 'warn_tender', found: other });
+    if (fileFit(f, r) < 0.5) {
+      const better = requirements.find((o) => o.id !== r.id && fileFit(f, o) >= 0.99);
+      if (better) list.push({ key: 'warn_looks_like', reqId: better.id });
+    }
+    if (list.length) out[r.id] = list;
+  }
+  return out;
 }
 
 /** Parse a page selection like "1, 3-5" against total pages → sorted unique 1-based numbers. "all" or empty → all. */

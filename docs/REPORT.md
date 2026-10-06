@@ -329,6 +329,55 @@ Behind a `<details>` panel in Step 4:
 | `npm test` | Status transitions, matching moves, duplicates, auto-match preferences, deadline-day expiry |
 | Manual sample pack | Full generate path → reference PDF in `output/` |
 | Screenshot suite | EN / BN / blocked / ready / generated / drag / confirm |
+| Chrome end-to-end run | Scripted sample-pack flow (Playwright) — **27 / 27 checks pass** |
+
+### 14.1 End-to-end test report (6 Oct 2026)
+
+A scripted Chrome run (Playwright, 1440×900) loads `requirements.json`, uploads every file in `documents/`, matches, enters expiry dates (deadline **2026-10-20**; same-day expiry = OK), tries to break the gate, toggles EN/BN once, then generates and checks the PDF. Full flow: **14 s**, **0** console errors.
+
+#### Smoke
+
+| Check | Result | Note |
+| ----- | ------ | ---- |
+| Opens | ✅ Pass | Ready in 1.8 s |
+| Load requirements.json | ✅ Pass | Tender fields shown · 10 requirements (8 mandatory) |
+| Sorted requirement list | ✅ Pass | R01 → R10 by `order` |
+| Multi PDF upload + page count | ✅ Pass | 10 PDFs in one pick; page counts correct |
+| Reject non-PDF | ✅ Pass | `company_logo.png` refused with a notice |
+| Match / unmatch | ✅ Pass | Auto-match 7 / 8; manual select and unmatch work |
+| Expiry input | ✅ Pass | 2026-10-19 → Expired · 2026-10-20 → OK |
+| Duplicate detect + block | ✅ Pass | Both `experience_cert` twins flagged; copy disabled for R06 |
+| Status live update | ✅ Pass | Missing → Expiry needed → Expired → OK |
+| Generate blocked when invalid | ✅ Pass | Disabled on Missing / Expiry needed / Expired |
+| Download package | ✅ Pass | `T-2026-0417_Package.pdf`, 17 pages |
+| EN / বাংলা toggle | ✅ Pass | ট্রেড লাইসেন্স · প্যাকেজ তৈরি করুন, then back |
+
+#### Status (sample pack)
+
+| ID | Expected | Actual | Result |
+| -- | -------- | ------ | ------ |
+| R01 Trade License | OK | OK (2026 copy, expiry 2026-10-20) | ✅ |
+| R02 TIN Certificate | OK | OK | ✅ |
+| R03 VAT Registration | OK | OK | ✅ |
+| R04 Bank Solvency | OK | OK (expiry 2026-10-20) | ✅ |
+| R05 Experience | OK | OK (one copy only) | ✅ |
+| R06 Audited FS (optional) | Not provided or OK | Not provided | ✅ |
+| R07 Manufacturer's Auth. (optional) | Not provided or OK | Not provided | ✅ |
+| R08 Technical Proposal | OK | OK | ✅ |
+| R09 Financial Proposal | OK | OK | ✅ |
+| R10 Signed Declaration | OK | OK (`scan_0042.pdf`, matched by hand) | ✅ |
+
+#### Package PDF
+
+| Check | Result | Note |
+| ----- | ------ | ---- |
+| File name | ✅ Pass | `T-2026-0417_Package.pdf` |
+| Cover fields (EN) | ✅ Pass | All 6 fields + ordered document table |
+| Docs in order | ✅ Pass | R01–R05, R08–R10 on pages 3–17 |
+| Skip empty optionals | ✅ Pass | R06, R07 omitted |
+| Footer | ✅ Pass | `T-2026-0417 \| Page N of 17` on every page |
+
+**Verdict:** 27 pass · 0 fail · **ready**. Follow-ups that don't block: “1 Pages” should be singular; auto-match can't place `scan_0042.pdf` (no text, generic name); the index page is an image (see §18).
 
 ---
 

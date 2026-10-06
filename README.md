@@ -19,15 +19,7 @@
 
 | Live demo | Reg. no. | Sample package | Tests | Languages |
 | --------- | -------- | -------------- | ----- | --------- |
-| [tendernest.devabir.me](https://tendernest.devabir.me/) | **261-15-001** | [`T-2026-0417_Package.pdf`](output/T-2026-0417_Package.pdf) | unit tests for status · match · duplicates | **EN + বাংলা** |
-
-<p align="center">
-  <img src="screenshots/00_home_empty.png" alt="TenderNest — current UI home" width="100%" />
-</p>
-
-<p align="center">
-  <img src="screenshots/04_all_ok_ready_en.png" alt="TenderNest — sample pack ready to generate" width="100%" />
-</p>
+| **[tendernest.devabir.me](https://tendernest.devabir.me/)** | **261-15-001** | [`T-2026-0417_Package.pdf`](output/T-2026-0417_Package.pdf) | unit tests for status · match · duplicates | **EN + বাংলা** |
 
 | | |
 |---|---|
@@ -109,20 +101,50 @@ Bundled unchanged in [`public/sample-pack/`](public/sample-pack/).
 
 ## 🖥️ Feature tour
 
-Fresh captures of the **current** TenderNest UI (sidebar steps, warm canvas, sage accents).
+Step-by-step frames from the live UI (**1280×800 viewport**, ink sidebar + one step in view — not full-page scroll captures). Click any image for the full PNG.
 
-| | |
-|:---:|:---:|
-| [![Home shell](screenshots/00_home_empty.png)](screenshots/00_home_empty.png)<br/>**Home.** Brand shell, privacy strip, Step 01–02 empty states, dock/sidebar. | [![Sample loaded](screenshots/01_sample_loaded_all_missing.png)](screenshots/01_sample_loaded_all_missing.png)<br/>**Sample pack.** Tender meta loaded; files in; mandatory rows start open. |
-| [![Files list](screenshots/01b_files_uploaded.png)](screenshots/01b_files_uploaded.png)<br/>**Files.** Thumbnails, pages, duplicates flagged, preview/remove. | [![After auto-match](screenshots/02_after_auto_match.png)](screenshots/02_after_auto_match.png)<br/>**Auto-match.** Name + PDF text suggestions; tray keeps unused chips. |
-| [![Blocked generate](screenshots/03_expired_blocks_generate.png)](screenshots/03_expired_blocks_generate.png)<br/>**Safety.** Expiry / missing blockers keep Generate disabled with reasons. | [![All OK ready](screenshots/04_all_ok_ready_en.png)](screenshots/04_all_ok_ready_en.png)<br/>**Ready.** 8/8 mandatory OK — Generate unlocks. |
-| [![Generated package](screenshots/05_generated_en.png)](screenshots/05_generated_en.png)<br/>**Package.** Download `<tender_id>_Package.pdf` + in-app preview. | [![Bangla match](screenshots/06_bangla_ui.png)](screenshots/06_bangla_ui.png)<br/>**বাংলা.** Full UI translation, statuses, digits. |
-| [![Match clear](screenshots/07_all_ok_drag_match_summary.png)](screenshots/07_all_ok_drag_match_summary.png)<br/>**Match.** Drag tray + dropdowns; all mandatory clear. | [![Bangla package](screenshots/08_bangla_all_ok.png)](screenshots/08_bangla_all_ok.png)<br/>**বাংলা package.** Same ready/download flow in Bangla chrome. |
-
-<p align="center">
-  <a href="screenshots/09_confirm_dialog.png"><img src="screenshots/09_confirm_dialog.png" alt="Help panel" width="90%" /></a><br/>
-  <em>Help / how-to panel over the current shell.</em>
-</p>
+<table>
+<tr>
+<td width="50%" valign="top">
+<a href="screenshots/00_home_empty.png"><img src="screenshots/00_home_empty.png" alt="Step 1 — empty tender" width="100%" /></a><br/>
+<b>1 · Tender</b> — requirements shell before load.
+</td>
+<td width="50%" valign="top">
+<a href="screenshots/01_sample_loaded_all_missing.png"><img src="screenshots/01_sample_loaded_all_missing.png" alt="Sample pack loaded" width="100%" /></a><br/>
+<b>2 · Sample pack</b> — tender meta + file count in the rail.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="screenshots/01b_files_uploaded.png"><img src="screenshots/01b_files_uploaded.png" alt="Uploaded PDFs" width="100%" /></a><br/>
+<b>3 · Files</b> — thumbnails, duplicates, preview.
+</td>
+<td width="50%" valign="top">
+<a href="screenshots/02_after_auto_match.png"><img src="screenshots/02_after_auto_match.png" alt="After auto-match" width="100%" /></a><br/>
+<b>4 · Match</b> — auto-match + file tray.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="screenshots/07_all_ok_drag_match_summary.png"><img src="screenshots/07_all_ok_drag_match_summary.png" alt="All mandatory matched" width="100%" /></a><br/>
+<b>5 · Status</b> — mandatory rows clear.
+</td>
+<td width="50%" valign="top">
+<a href="screenshots/04_all_ok_ready_en.png"><img src="screenshots/04_all_ok_ready_en.png" alt="Ready to generate" width="100%" /></a><br/>
+<b>6 · Package</b> — generate unlocked.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="screenshots/05_generated_en.png"><img src="screenshots/05_generated_en.png" alt="Generated PDF" width="100%" /></a><br/>
+<b>7 · Download</b> — preview + `<tender_id>_Package.pdf`.
+</td>
+<td width="50%" valign="top">
+<a href="screenshots/06_bangla_ui.png"><img src="screenshots/06_bangla_ui.png" alt="Bangla UI" width="100%" /></a><br/>
+<b>8 · বাংলা</b> — full UI in Bangla.
+</td>
+</tr>
+</table>
 
 ### Also built in
 

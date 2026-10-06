@@ -1,7 +1,8 @@
 // All PDF work happens in the browser: pdf.js reads/inspects, pdf-lib builds the package.
 import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
-import * as pdfjs from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// Legacy build: polyfills newer JS (e.g. Map.getOrInsertComputed) so page rendering works in any recent Chrome.
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 import { detectExpiry } from './logic.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -57,6 +58,7 @@ export async function inspectPdf(buf) {
   return {
     pages,
     textTitle: clean.slice(0, 300),
+    textSample: clean.slice(0, 3000), // longer text for content checks (other tender ids)
     detectedExpiry: detectExpiry(clean),
   };
 }
@@ -119,7 +121,28 @@ function fitLine(text, font, size, maxW) {
   return `${s.trimEnd()}...`;
 }
 
-function drawCover(pdf, page, fonts, tender, included, madeOn, indexStart) {
+const COVER_VALUE_W = A4[0] - 56 - (56 + 150); // width of the value column on the cover
+const needsImage = (s) => /[^\x20-\x7E\xA0-\xFF‘’“”–—]/.test(String(s ?? ''));
+
+/**
+ * Cover values the standard fonts cannot draw (Bangla, other scripts) become images rendered by the
+ * caller (a browser canvas shapes them correctly). Returns { value: { img, height } }.
+ */
+async function coverImages(pdf, tender, textImage) {
+  const out = {};
+  if (!textImage) return out;
+  for (const v of [tender.tender_id, tender.title, tender.procuring_entity, tender.bidder, tender.submission_deadline]) {
+    if (!needsImage(v) || out[v]) continue;
+    try {
+      const { png, height } = await textImage(String(v), COVER_VALUE_W, 11);
+      const img = await pdf.embedPng(png);
+      out[v] = { img, height };
+    } catch {} // fall back to "?" text rather than failing the package
+  }
+  return out;
+}
+
+function drawCover(pdf, page, fonts, tender, included, madeOn, indexStart, images = {}) {
   const { bold, reg } = fonts;
   const [W, H] = A4;
   const L = 56;
@@ -141,6 +164,14 @@ function drawCover(pdf, page, fonts, tender, included, madeOn, indexStart) {
   ];
   for (const [k, v] of rows) {
     page.drawText(k, { x: L, y, size: 11, font: bold, color: GREY });
+    const im = images[v];
+    if (im) {
+      // First line sits on the label's line (Bangla's headline stroke makes it look high, hence +10 not +12).
+      const w = (im.img.width / im.img.height) * im.height;
+      page.drawImage(im.img, { x: L + 150, y: y + 10 - im.height, width: w, height: im.height });
+      y -= Math.max(14, im.height) + 8;
+      continue;
+    }
     const lines = wrap(v || '-', reg, 11, R - (L + 150));
     lines.forEach((ln, i) => page.drawText(ln, { x: L + 150, y: y - i * 14, size: 11, font: reg }));
     y -= Math.max(1, lines.length) * 14 + 8;
@@ -233,7 +264,8 @@ function placeShrunk(pdf, embedded, srcW, srcH, rotation) {
 /**
  * Build the package.
  * docs: [{ req, file: { name, buf, pages } }] already filtered + sorted by order.
- * options: { indexPng?: Uint8Array (bonus Bangla/English index page image), seal?: { png, pages:"spec", pos, size } }
+ * options: { indexPng?: Uint8Array (bonus Bangla/English index page image), seal?: { png, pages:"spec", pos, size },
+ *            textImage?: (text, maxWidthPt, sizePt) => Promise<{ png, height }> for cover text outside WinAnsi }
  * Returns Uint8Array.
  */
 export async function buildPackage(tender, docs, options = {}) {
@@ -250,7 +282,8 @@ export async function buildPackage(tender, docs, options = {}) {
   const firstDocPage = hasIndex ? 3 : 2;
 
   const cover = pdf.addPage(A4);
-  const startPages = drawCover(pdf, cover, fonts, tender, included, madeOn, firstDocPage);
+  const images = await coverImages(pdf, tender, options.textImage);
+  const startPages = drawCover(pdf, cover, fonts, tender, included, madeOn, firstDocPage, images);
 
   if (hasIndex) {
     const png = await options.renderIndex(startPages);

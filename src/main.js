@@ -2,12 +2,14 @@ import './style.css';
 import { t, setLang, getLang, reqTitle, num, dict } from './i18n.js';
 import {
   STATUS, BLOCKING, parseRequirements, allStatuses, blockingProblems, duplicateGroups,
-  reqOfFile, canMatch, applyMatch, suggestMatches, parsePageList, csvEscape,
+  reqOfFile, canMatch, applyMatch, suggestMatches, parsePageList, csvEscape, contentWarnings,
 } from './logic.js';
+import JSZip from 'jszip';
 import { sha256, looksLikePdf, inspectPdf, thumbnail, buildPackage } from './pdf.js';
 import { saveProject, loadProject, clearProject, exportProjectFile, importProjectFile } from './storage.js';
 import { logoMark } from './logo.js';
 import { Idiomorph } from 'idiomorph';
+import { setupTour, startTour, tourSeen } from './tour.js';
 
 const MAX_FILES = 30;
 const MAX_MB = 50;
@@ -26,7 +28,13 @@ const ui = {
   preview: null, // object URL of file being previewed
   history: [], // undo stack of { matches, expiries } snapshots
   tab: 'tender', // active step: the only section shown on phones, the scroll target on desktop
+  progress: null, // { i, n } while files are being read
+  picked: null, // file id picked in the tray for tap-to-match (touch screens, keyboard)
+  say: '', // last status change, read out by screen readers
+  pulse: false, // Generate button glows once when the last blocker is fixed
+  touring: false, // live tour running on the sample pack: nothing gets saved
 };
+const pagesTxt = (n) => `${num(n)} ${t(n === 1 ? 'page_one' : 'page_many')}`;
 
 const $app = document.getElementById('app');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -37,29 +45,29 @@ function notify(kind, key, vars = {}) {
   const id = uid();
   ui.notices.push({ kind, key, vars, id });
   if (ui.notices.length > 6) ui.notices.shift();
-  // Errors stay until closed; other toasts fade out so they never sit on top of buttons.
-  if (kind !== 'error') {
-    setTimeout(() => dismissNotice(id), 6000);
-  }
+  // Auto-dismiss so toasts never sit on top of buttons (errors get a bit longer to read).
+  setTimeout(() => dismissNotice(id), kind === 'error' ? 8000 : 6000);
 }
 
 /** Run a CSS exit animation (`cls`) on `el`, then `done`. Falls back to a timer if no animation fires. */
-function animateOut(el, cls, done) {
+function animateOut(el, cls, done, ms = 500) {
   if (!el || el.classList.contains(cls) || matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
   let fired = false;
   const finish = () => !fired && ((fired = true), done());
   el.classList.add(cls);
   el.addEventListener('animationend', (e) => e.target === el && finish());
-  setTimeout(finish, 450);
+  setTimeout(finish, ms);
 }
 
-/** Slide a toast out, then drop it. The morph keeps focus and typed text, so this is safe mid-typing. */
+/** Vanish a toast (Telegram-style shrink/blur), then drop it. Safe mid-typing thanks to morph. */
 function dismissNotice(id) {
   if (!ui.notices.some((n) => n.id === id)) return;
-  animateOut(document.getElementById(`n-${id}`), 'leaving', () => {
+  const el = document.getElementById(`n-${id}`);
+  if (el) el.style.setProperty('--toast-h', `${el.offsetHeight}px`);
+  animateOut(el, 'leaving', () => {
     ui.notices = ui.notices.filter((n) => n.id !== id);
     render();
-  });
+  }, 480);
 }
 
 function closePreview() {
@@ -90,13 +98,32 @@ function undo() {
 }
 
 let saveTimer;
+let lastStatuses = null; // { tender_id, st } to tell what a change did
 function changed() {
   if (ui.output) {
     URL.revokeObjectURL(ui.output.url);
     ui.output = null; // any change makes an old package stale
   }
+  if (project.reqs) {
+    const st = allStatuses(project);
+    const prev = lastStatuses?.id === project.reqs.tender.tender_id ? lastStatuses.st : null;
+    if (prev) {
+      // Screen readers hear what the change did, e.g. "Trade License: Expired".
+      const moved = project.reqs.requirements.filter((r) => prev[r.id] !== st[r.id]);
+      if (moved.length && moved.length <= 3) ui.say = moved.map((r) => `${reqTitle(r)}: ${t(`st_${st[r.id]}`)}`).join('. ');
+      // The moment the last blocker goes: say so and make the Generate button glow.
+      const blocks = (s) => project.reqs.requirements.some((r) => BLOCKING.has(s[r.id]));
+      if (blocks(prev) && !blocks(st)) {
+        notify('ok', 'all_clear');
+        ui.pulse = true;
+      } else if (blocks(st)) ui.pulse = false;
+    }
+    lastStatuses = { id: project.reqs.tender.tender_id, st };
+  } else lastStatuses = null;
+  if (ui.picked && reqOfFile(project.matches, ui.picked)) ui.picked = null;
+  if (ui.picked && !project.files.some((f) => f.id === ui.picked)) ui.picked = null;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => saveProject(project), 300);
+  if (!ui.touring) saveTimer = setTimeout(() => saveProject(project), 300); // the tour's sample is never saved
   render();
 }
 
@@ -129,8 +156,10 @@ async function addFiles(fileList) {
   render();
   let added = 0;
   let total = project.files.reduce((s, f) => s + f.size, 0);
-  for (const file of fileList) {
+  for (const [i, file] of [...fileList].entries()) {
     const name = file.name;
+    ui.progress = { i: i + 1, n: fileList.length };
+    $app.querySelector('[data-progress]')?.replaceChildren(t('reading', { i: num(i + 1), n: num(fileList.length) }));
     try {
       const buf = await file.arrayBuffer();
       const isPdfName = /\.pdf$/i.test(name) || file.type === 'application/pdf';
@@ -168,6 +197,7 @@ async function addFiles(fileList) {
     }
   }
   ui.busy = false;
+  ui.progress = null;
   if (added) notify('ok', 'added', { n: added });
   if (Object.keys(duplicateGroups(project.files)).length) {
     if (!ui.notices.some((n) => n.key === 'dup_found')) notify('info', 'dup_found');
@@ -177,30 +207,112 @@ async function addFiles(fileList) {
 }
 
 async function loadThumbs() {
-  for (const f of project.files) {
-    if (ui.thumbs[f.id]) continue;
+  const { files } = project;
+  const thumbs = ui.thumbs;
+  for (const f of files) {
+    if (thumbs[f.id]) continue;
     try {
-      ui.thumbs[f.id] = await thumbnail(f.buf);
+      thumbs[f.id] = await thumbnail(f.buf);
+      if (thumbs !== ui.thumbs) return; // the project was swapped meanwhile (tour start/end, reset)
       const img = document.querySelector(`img[data-thumb="${f.id}"]`);
       if (img) img.src = ui.thumbs[f.id];
       else render();
     } catch {
-      ui.thumbs[f.id] = 'x';
+      thumbs[f.id] = 'x';
     }
   }
+}
+
+function freshProject() {
+  project = emptyProject();
+  ui.notices = [];
+  ui.thumbs = {};
+  ui.history = [];
+  ui.picked = null;
+}
+
+const skipEntry = (path) => /(^|\/)(__MACOSX|\.)/.test(path); // macOS zip junk and hidden files
+
+/** Expand .zip files into their entries. Folders arrive already flattened (see filesFromDrop). */
+async function expandZips(files) {
+  const out = [];
+  for (const f of files) {
+    if (!/\.zip$/i.test(f.name)) {
+      if (!skipEntry(f.webkitRelativePath || f.name)) out.push(f);
+      continue;
+    }
+    try {
+      const zip = await JSZip.loadAsync(f);
+      for (const entry of Object.values(zip.files)) {
+        if (entry.dir || skipEntry(entry.name)) continue;
+        const name = entry.name.split('/').pop();
+        const type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.json$/i.test(name) ? 'application/json' : '';
+        out.push(new File([await entry.async('blob')], name, { type }));
+      }
+    } catch (e) {
+      console.warn('could not open zip', f.name, e);
+      notify('error', 'err_zip');
+    }
+  }
+  return out;
+}
+
+/**
+ * One entry point for anything the user hands us: PDFs, a requirements.json, a .zip pack or a folder.
+ * A requirements file together with documents is a whole pack: it starts a fresh project, like the sample.
+ */
+async function ingest(fileList) {
+  ui.busy = true;
+  render();
+  const files = await expandZips([...fileList]);
+  const jsons = files.filter((f) => /\.json$/i.test(f.name));
+  const docs = files.filter((f) => !/\.json$/i.test(f.name));
+  // Prefer a file called requirements*.json; a pack may also carry a manifest.json.
+  const req = jsons.find((f) => /requirement/i.test(f.name)) || (jsons.length === 1 ? jsons[0] : null);
+  ui.busy = false;
+  if (req && docs.length) {
+    freshProject();
+    loadRequirementsJson(await req.text());
+    if (!project.reqs) return; // bad requirements: the error is already shown
+    await addFiles(docs);
+    autoMatch();
+    notify('ok', 'pack_loaded', { req: project.reqs.requirements.length, files: project.files.length });
+  } else if (req) {
+    loadRequirementsJson(await req.text());
+  } else if (docs.length) {
+    if (fileList.length === 1 && /\.zip$/i.test(fileList[0].name) && !jsons.length) notify('info', 'err_pack_no_req');
+    await addFiles(docs);
+  } else render();
+}
+
+/** Files from a drop, walking into dropped folders (webkitGetAsEntry is supported by every current browser). */
+async function filesFromDrop(dt) {
+  const entries = [...(dt.items || [])].map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length || !entries.some((e) => e.isDirectory)) return [...dt.files];
+  const out = [];
+  const walk = async (entry) => {
+    if (skipEntry(entry.name)) return;
+    if (entry.isFile) return out.push(await new Promise((res, rej) => entry.file(res, rej)));
+    const reader = entry.createReader();
+    for (;;) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) break;
+      for (const e of batch) await walk(e);
+    }
+  };
+  for (const e of entries) await walk(e);
+  return out;
 }
 
 async function loadSamplePack() {
   ui.busy = true;
   render();
+  let ok = false;
   try {
     const base = `${import.meta.env.BASE_URL}sample-pack/`;
     const manifest = await (await fetch(`${base}manifest.json`)).json();
     const reqText = await (await fetch(`${base}${manifest.requirements}`)).text();
-    project = emptyProject();
-    ui.notices = [];
-    ui.thumbs = {};
-    ui.history = [];
+    freshProject();
     loadRequirementsJson(reqText);
     const files = [];
     for (const name of manifest.documents) {
@@ -211,12 +323,15 @@ async function loadSamplePack() {
     }
     await addFiles(files);
     notify('info', 'sample_loaded');
+    ok = !!project.reqs;
   } catch (e) {
     console.error(e);
     notify('error', 'err_sample');
   }
   ui.busy = false;
-  render();
+  // Mobile is one step per screen — advance to Files so the pack isn't stuck on Tender.
+  if (ok) openTab('files');
+  else render();
 }
 
 // ---------------- Actions ----------------
@@ -301,6 +416,38 @@ function includedDocs() {
     .filter((d) => d.file);
 }
 
+/** Cover-page text the PDF's standard fonts can't draw (e.g. a Bangla bidder name), as a crisp PNG. */
+async function renderTextPng(text, maxWidthPt, sizePt) {
+  try {
+    await document.fonts.load(`28px "Noto Sans Bengali"`, text);
+  } catch {}
+  const k = 4; // px per pt, so the image stays sharp when printed
+  const font = `${sizePt * k}px "Noto Sans Bengali", "Noto Sans", Arial, sans-serif`;
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.font = font;
+  const lines = [];
+  let line = '';
+  for (const w of text.split(/\s+/)) {
+    const next = line ? `${line} ${w}` : w;
+    if (line && ctx.measureText(next).width > maxWidthPt * k) {
+      lines.push(line);
+      line = w;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  const lh = (sizePt + 5) * k; // Bangla needs room above and below the line
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(Math.max(...lines.map((l) => ctx.measureText(l).width)) + 2);
+  c.height = Math.ceil(lines.length * lh);
+  const g = c.getContext('2d');
+  g.font = font;
+  g.fillStyle = '#000';
+  g.textBaseline = 'middle';
+  lines.forEach((l, i) => g.fillText(l, 0, i * lh + lh / 2));
+  const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
+  return { png: new Uint8Array(await blob.arrayBuffer()), height: c.height / k };
+}
+
 /** Bonus: index page drawn on a canvas so Bangla text is shaped correctly by the browser. */
 async function renderIndexPng(docs, startPages) {
   try {
@@ -367,7 +514,7 @@ async function generate() {
   render();
   try {
     const docs = includedDocs();
-    const opts = {};
+    const opts = { textImage: renderTextPng };
     if (project.includeIndex) opts.renderIndex = (startPages) => renderIndexPng(docs, startPages);
     if (project.seal) {
       // We need the total to resolve "all" — compute it up front.
@@ -385,10 +532,14 @@ async function generate() {
         return render();
       }
     }
-    const { bytes, total } = await buildPackage(project.reqs.tender, docs, opts);
+    const { bytes, total, startPages } = await buildPackage(project.reqs.tender, docs, opts);
     const name = `${project.reqs.tender.tender_id}_Package.pdf`;
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    ui.output = { url, name, total };
+    // Page map: which pages of the package hold what, so the user can check it without scrolling the PDF.
+    const map = [{ key: 'pm_cover', a: 1, b: 1 }];
+    if (startPages[0] > 2) map.push({ key: 'pm_index', a: 2, b: startPages[0] - 1 });
+    docs.forEach((d, i) => map.push({ req: d.req, a: startPages[i], b: startPages[i] + d.file.pages - 1 }));
+    ui.output = { url, name, total, map };
     notify('ok', 'generated', { pages: total });
   } catch (e) {
     console.error(e);
@@ -474,6 +625,7 @@ const ICONS = {
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6"/><path d="M12 17h.01"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   check: '<path d="m5 12.5 4.2 4.2L19 7"/>',
+  cursor: '<path d="M6 4.5v13.4l3.5-3.3 2.4 5.4 2.4-1.1-2.4-5.3h4.9Z"/>',
 };
 const icon = (name, cls = 'ico') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
@@ -547,6 +699,11 @@ function viewRail() {
         </button>`;
       }).join('')}
     </nav>
+    <button class="tour-launch" data-act="tour">
+      <span class="tl-ico">${icon('cursor')}</span>
+      <span class="step-txt"><b>${t('tour')}</b><small>${t('tour_sub')}</small></span>
+      ${tourSeen() ? '' : '<i class="tl-new" aria-hidden="true"></i>'}
+    </button>
     <div class="ready-card">
       <div class="ring-wrap">${ring(mok, mtotal)}<span class="ring-num">${num(mok)}<i>/${num(mtotal)}</i></span></div>
       <p>${t('readiness')}</p>
@@ -564,7 +721,10 @@ function viewMobileTop() {
   return `
   <header class="mtop">
     <div class="mbar">
-      ${logoMark({ className: 'mbar-mark', size: 30 })}
+      <div class="mbar-lead">
+        ${logoMark({ className: 'mbar-mark', size: 30 })}
+        <button class="tour-pill" data-act="tour" aria-label="${t('tour')}">${icon('cursor')}<span>${t('tour_short')}</span>${tourSeen() ? '' : '<i class="tl-new" aria-hidden="true"></i>'}</button>
+      </div>
       <span class="mbar-title">${t(`tab_${ui.tab}`)}</span>
       <div class="mbar-actions">
         <button class="icon-btn" data-act="help" aria-expanded="${ui.showHelp}" aria-label="${t('help')}">${icon('help')}</button>
@@ -654,6 +814,8 @@ function viewTender() {
     <div class="row wrap">
       <label class="btn primary">📄 ${t('open_req')}<input type="file" accept=".json,application/json" data-in="req" hidden></label>
       <button class="btn" data-act="sample" ${ui.busy ? 'disabled' : ''}>🧪 ${t('load_sample')}</button>
+      <label class="btn">🗜 ${t('open_pack')}<input type="file" accept=".zip,application/zip" data-in="pack" hidden></label>
+      <label class="btn">📁 ${t('open_folder')}<input type="file" webkitdirectory multiple data-in="pack" hidden></label>
     </div>
     ${body}
   </section>`;
@@ -668,10 +830,10 @@ function viewFiles() {
       const req = project.reqs?.requirements.find((r) => r.id === reqId);
       const thumb = ui.thumbs[f.id] && ui.thumbs[f.id] !== 'x' ? ui.thumbs[f.id] : '';
       return `<tr id="f-${f.id}" class="${dups[f.id] ? 'dup-row' : ''}" draggable="true" data-file="${f.id}" title="${esc(t('drag_hint'))}">
-        <td class="thumb c-thumb"><img data-thumb="${f.id}" src="${thumb}" alt="" ${thumb ? '' : 'class="blank"'}></td>
+        <td class="thumb c-thumb"><img data-thumb="${f.id}" ${thumb ? `src="${thumb}"` : 'class="blank"'} alt=""></td>
         <td class="c-name">
           <div class="fname">${esc(f.name)}</div>
-          <div class="meta">${fmtSize(f.size)}<span class="m-only"> · ${num(f.pages)} ${t('pages')}</span></div>
+          <div class="meta">${fmtSize(f.size)}<span class="m-only"> · ${pagesTxt(f.pages)}</span></div>
           ${dups[f.id] ? `<div class="badge warn">⧉ ${t('duplicate')}</div> <span class="dupnote">${esc(t('duplicate_of', { names: dups[f.id].map(nameOf).join(', ') }))}</span>` : ''}
         </td>
         <td class="num c-pages">${num(f.pages)}</td>
@@ -690,10 +852,10 @@ function viewFiles() {
       <span class="drop-ico">${icon('files', 'ico lg')}</span>
       <span class="drop-txt">${t('drop_here')}</span>
       <span class="btn primary">${t('choose_files')}</span>
-      <input type="file" multiple accept="application/pdf,.pdf" data-in="files" hidden>
+      <input type="file" multiple accept="application/pdf,.pdf,.zip,application/zip,.json,application/json" data-in="files" hidden>
       <small>${t('limits', { files: MAX_FILES, mb: MAX_MB })}</small>
     </label>
-    ${ui.busy ? `<p class="loading">⏳ ${t('loading')}</p>` : ''}
+    ${ui.busy ? `<p class="loading" role="status">⏳ <span data-progress>${ui.progress ? t('reading', { i: num(ui.progress.i), n: num(ui.progress.n) }) : t('loading')}</span></p>` : ''}
     ${project.files.length
       ? `<div class="table-wrap"><table class="files">
           <thead><tr><th></th><th>${t('file_name')}</th><th class="num">${t('pages')}</th><th>${t('matched_to')}</th><th></th></tr></thead>
@@ -710,7 +872,7 @@ function fileOptions(req) {
   for (const f of project.files) {
     const usedBy = reqOfFile(project.matches, f.id);
     const conflict = canMatch(project, req.id, f.id);
-    let label = `${f.name} · ${num(f.pages)} ${t('pages')}`;
+    let label = `${f.name} · ${pagesTxt(f.pages)}`;
     if (dups[f.id]) label += ` · ${t('duplicate')}`;
     if (usedBy && usedBy !== req.id) {
       const other = project.reqs.requirements.find((r) => r.id === usedBy);
@@ -727,10 +889,11 @@ function viewFileTray() {
   const dups = duplicateGroups(project.files);
   const free = project.files.filter((f) => !reqOfFile(project.matches, f.id));
   const chips = free
-    .map((f) => `<span class="chip${dups[f.id] ? ' dup' : ''}" draggable="true" data-file="${f.id}" title="${esc(t('drag_hint'))}">⠿ ${esc(f.name)} · ${num(f.pages)} ${t('pages')}</span>`)
+    .map((f) => `<span class="chip${dups[f.id] ? ' dup' : ''}${ui.picked === f.id ? ' picked' : ''}" draggable="true" data-file="${f.id}" data-act="pick" role="button" tabindex="0" aria-pressed="${ui.picked === f.id}" title="${esc(t('drag_hint'))}">⠿ ${esc(f.name)} · ${pagesTxt(f.pages)}</span>`)
     .join('');
+  const picked = ui.picked && project.files.find((f) => f.id === ui.picked);
   return `<div class="file-tray">
-    <p class="muted-text drag-tip">${t('drag_tip')}</p>
+    <p class="muted-text drag-tip">${picked ? `<b class="pick-tip">${esc(t('tap_pick', { name: picked.name }))}</b>` : `<span class="tip-drag">${t('drag_tip')}</span><span class="tip-tap">${t('tap_tip')}</span>`}</p>
     ${free.length ? `<div class="chips">${chips}</div>` : `<p class="muted-text">${t('all_files_used')}</p>`}
   </div>`;
 }
@@ -739,6 +902,7 @@ function viewRequirements() {
   if (!project.reqs) return viewNeedReq('match', 3);
   const { st, counts } = stats();
   const deadline = project.reqs.tender.submission_deadline;
+  const warns = contentWarnings(project);
   const rows = project.reqs.requirements
     .map((r) => {
       const s = st[r.id];
@@ -749,12 +913,17 @@ function viewRequirements() {
         expiryCell = fileId
           ? `<input type="date" data-in="expiry" data-req="${r.id}" value="${esc(project.expiries[r.id] || '')}" aria-label="${t('expiry')}">`
           : `<span class="muted-text">—</span>`;
+        // Bangla readers get the picked date spelled out (the native date field follows the OS language).
+        if (fileId && project.expiries[r.id] && getLang() === 'bn') {
+          expiryCell += `<div class="hint bn-date">${esc(bnDate(project.expiries[r.id]))}</div>`;
+        }
         if (fileId && file?.detectedExpiry && file.detectedExpiry !== project.expiries[r.id]) {
           expiryCell += `<div class="hint">${t('detected', { date: esc(file.detectedExpiry) })} <button class="link" data-act="use-expiry" data-req="${r.id}" data-date="${esc(file.detectedExpiry)}">${t('use_it')}</button></div>`;
         }
       }
       const why = s === STATUS.EXPIRED ? t('why_expired', { date: project.expiries[r.id], deadline }) : '';
-      return `<tr id="r-${r.id}" class="st-${s}" data-req-drop="${r.id}">
+      const checks = (warns[r.id] || []).map((w) => `<div class="why-check">⚠ ${esc(warnText(w))}</div>`).join('');
+      return `<tr id="r-${r.id}" class="st-${s}${ui.picked ? ' pick-target' : ''}" data-req-drop="${r.id}"${ui.picked ? ' tabindex="0"' : ''}>
         <td class="num c-order">${num(r.order)}</td>
         <td class="c-doc">
           <div class="rtitle">${esc(reqTitle(r))}</div>
@@ -766,7 +935,7 @@ function viewRequirements() {
           ${fileId ? `<button class="link" data-act="unmatch" data-req="${r.id}">↺ ${t('unmatch')}</button>` : ''}
         </td>
         <td class="c-exp"${r.has_expiry ? '' : ' data-na'}>${expiryCell}</td>
-        <td class="c-status"><span class="badge ${statusClass[s]}">${statusIcon[s]} ${t(`st_${s}`)}</span>${why ? `<div class="why">${esc(why)}</div>` : ''}</td>
+        <td class="c-status"><span class="badge ${statusClass[s]}">${statusIcon[s]} ${t(`st_${s}`)}</span>${why ? `<div class="why">${esc(why)}</div>` : ''}${checks}</td>
       </tr>`;
     })
     .join('');
@@ -784,9 +953,36 @@ function viewRequirements() {
   </section>`;
 }
 
+function warnText(w) {
+  if (w.key === 'warn_tender') return t('warn_tender', { found: w.found, id: project.reqs.tender.tender_id });
+  return t('warn_looks_like', { doc: reqTitle(project.reqs.requirements.find((r) => r.id === w.reqId)) });
+}
+
+function bnDate(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : new Intl.DateTimeFormat('bn-BD', { dateStyle: 'long' }).format(d);
+}
+
+/** Jump from a step-4 problem to its row in step 3 and put the cursor where the fix goes. */
+function gotoReq(reqId) {
+  openTab('match');
+  requestAnimationFrame(() => {
+    const row = document.getElementById(`r-${reqId}`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+    (row.querySelector('input[type=date]') || row.querySelector('select'))?.focus({ preventScroll: true });
+    row.classList.remove('flash');
+    void row.offsetWidth;
+    row.classList.add('flash');
+    setTimeout(() => row.classList.remove('flash'), 1600);
+  });
+}
+
 function viewGenerate() {
   if (!project.reqs) return viewNeedReq('package', 4);
   const problems = blockingProblems(project);
+  const warns = contentWarnings(project);
+  const checks = project.reqs.requirements.filter((r) => warns[r.id]);
   const deadline = project.reqs.tender.submission_deadline;
   const why = (p) =>
     p.status === STATUS.EXPIRED
@@ -799,9 +995,14 @@ function viewGenerate() {
     ${secHead(4)}
     ${problems.length
       ? `<div class="blocked"><strong>⛔ ${t('blocked_title')}</strong><ul>${problems
-          .map((p) => `<li><b>${esc(reqTitle(p.req))}</b> — ${t(`st_${p.status}`)}: ${esc(why(p))}</li>`)
+          .map((p) => `<li><button class="link" data-act="goto-req" data-req="${p.req.id}" title="${esc(t('goto_fix'))}"><b>${esc(reqTitle(p.req))}</b></button> — ${t(`st_${p.status}`)}: ${esc(why(p))}</li>`)
           .join('')}</ul></div>`
       : `<div class="ready">✅ ${t('ready')}</div>`}
+    ${checks.length
+      ? `<div class="checks"><strong>⚠ ${t('check_title')}</strong><ul>${checks
+          .map((r) => `<li><button class="link" data-act="goto-req" data-req="${r.id}" title="${esc(t('goto_fix'))}"><b>${esc(reqTitle(r))}</b></button> — ${warns[r.id].map((w) => esc(warnText(w))).join(' ')}</li>`)
+          .join('')}</ul></div>`
+      : ''}
     <label class="check"><input type="checkbox" data-in="index" ${project.includeIndex ? 'checked' : ''}> ${t('include_index')}</label>
     <details class="seal" ${seal ? 'open' : ''}>
       <summary>🖋 ${t('seal_title')}</summary>
@@ -817,11 +1018,16 @@ function viewGenerate() {
       </div>
     </details>
     <div class="row gen">
-      <button class="btn primary big" data-act="generate" ${problems.length || ui.busy ? 'disabled' : ''} title="${problems.length ? esc(t('blocked_title')) : ''}">
+      <button class="btn primary big${ui.pulse && !problems.length && !ui.output ? ' pulse' : ''}" data-act="generate" ${problems.length || ui.busy ? 'disabled' : ''} title="${problems.length ? esc(t('blocked_title')) : ''}">
         ${ui.busy ? `⏳ ${t('generating')}` : `📦 ${t('generate')}`}
       </button>
       ${ui.output ? `<a class="btn success big" href="${ui.output.url}" download="${esc(ui.output.name)}">⬇️ ${t('download', { name: esc(ui.output.name) })}</a>` : ''}
     </div>
+    ${ui.output?.map
+      ? `<details class="page-map" open><summary>🗂 ${t('page_map')}</summary><ol>${ui.output.map
+          .map((m) => `<li><span>${esc(m.key ? t(m.key) : reqTitle(m.req))}</span><span class="muted-text">${m.a === m.b ? t('pm_single', { a: num(m.a) }) : t('pm_range', { a: num(m.a), b: num(m.b) })}</span></li>`)
+          .join('')}</ol></details>`
+      : ''}
     ${ui.output ? `<iframe class="pdf-preview" src="${ui.output.url}" title="${esc(ui.output.name)}"></iframe>` : ''}
     <hr>
     <div class="row wrap">
@@ -875,7 +1081,8 @@ function render() {
         <div class="foot-brand">${logoMark({ className: 'foot-mark', size: 22 })} <span>${t('app_title')}</span></div>
         <p class="foot-note">${t('footer')}</p>
       </footer>
-    </div></div>${viewTabbar()}${viewNotices()}${viewPreview()}`, MORPH);
+    </div></div>${viewTabbar()}${viewNotices()}${viewPreview()}
+    <div class="sr-only" role="status" aria-live="polite">${esc(ui.say)}</div>`, MORPH);
   syncStickyTop();
   updateScroll();
   if (ui.tabFrom != null) {
@@ -954,6 +1161,14 @@ function openTab(k) {
 // ---------------- Events (delegated) ----------------
 
 $app.addEventListener('click', (e) => {
+  // Tap-to-match: with a file picked in the tray, a tap on a document row (not on its controls) places it.
+  const row = ui.picked && e.target.closest('[data-req-drop]');
+  if (row && !e.target.closest('select, input, button, a, label')) {
+    const fileId = ui.picked;
+    ui.picked = null;
+    setMatch(row.dataset.reqDrop, fileId);
+    return render();
+  }
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const act = el.dataset.act;
@@ -967,6 +1182,8 @@ $app.addEventListener('click', (e) => {
     case 'help':
       ui.showHelp = !ui.showHelp;
       return render();
+    case 'tour':
+      return startTour();
     case 'dismiss':
       return dismissNotice(id);
     case 'sample':
@@ -994,6 +1211,11 @@ $app.addEventListener('click', (e) => {
       return closePreview();
     case 'unmatch':
       return setMatch(el.dataset.req, '');
+    case 'pick':
+      ui.picked = ui.picked === el.dataset.file ? null : el.dataset.file;
+      return render();
+    case 'goto-req':
+      return gotoReq(el.dataset.req);
     case 'use-expiry':
       remember();
       project.expiries = { ...project.expiries, [el.dataset.req]: el.dataset.date };
@@ -1047,8 +1269,8 @@ $app.addEventListener('change', async (e) => {
 async function handleChange(el, kind) {
   if (kind === 'req' && el.files[0]) {
     loadRequirementsJson(await el.files[0].text());
-  } else if (kind === 'files' && el.files.length) {
-    await addFiles([...el.files]);
+  } else if ((kind === 'files' || kind === 'pack') && el.files.length) {
+    await ingest([...el.files]);
   } else if (kind === 'match') {
     setMatch(el.dataset.req, el.value);
   } else if (kind === 'expiry') {
@@ -1141,7 +1363,7 @@ $app.addEventListener('drop', (e) => {
   if (!z) return;
   e.preventDefault();
   z.classList.remove('over');
-  addFiles([...e.dataTransfer.files]);
+  filesFromDrop(e.dataTransfer).then(ingest);
 });
 // Don't let a missed drop open the PDF in the tab and lose work.
 window.addEventListener('dragover', (e) => e.preventDefault());
@@ -1155,18 +1377,70 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
-  if (e.key === 'Escape' && ui.preview) closePreview();
+  if (e.key === 'Escape' && ui.preview) return closePreview();
+  if (e.key === 'Escape' && ui.picked) {
+    ui.picked = null;
+    return render();
+  }
+  // Keyboard tap-to-match: Enter/Space on a tray chip picks it, on a document row places it.
+  if (e.key === 'Enter' || e.key === ' ') {
+    const chip = e.target.closest?.('[data-act="pick"]');
+    const row = ui.picked && e.target.matches?.('[data-req-drop]') ? e.target : null;
+    if (chip || row) {
+      e.preventDefault();
+      (chip || row).click();
+    }
+  }
 });
 
 // ---------------- Boot ----------------
 setLang(getLang());
 render();
-loadProject().then((saved) => {
+const booted = loadProject().then((saved) => {
   if (saved && (saved.reqs || saved.files?.length)) {
     project = { ...emptyProject(), ...saved };
+    if (project.reqs) lastStatuses = { id: project.reqs.tender.tender_id, st: allStatuses(project) };
     render();
     loadThumbs();
   }
+});
+
+/** Live tour: set the visitor's work aside (autosave pauses, so it stays saved as it was) and return the undo. */
+function beginTour() {
+  clearTimeout(saveTimer);
+  saveProject(project); // flush a pending autosave before the sample takes over
+  const saved = {
+    project, lastStatuses, lang: getLang(), scroll: window.scrollY,
+    ui: { thumbs: ui.thumbs, history: ui.history, tab: ui.tab, showHelp: ui.showHelp, output: ui.output, pulse: ui.pulse, aiText: ui.aiText },
+  };
+  if (ui.preview) URL.revokeObjectURL(ui.preview);
+  freshProject();
+  lastStatuses = null;
+  // The visitor's package link is kept aside, not revoked, so it still works afterwards.
+  Object.assign(ui, { touring: true, preview: null, output: null, showHelp: false, pulse: false, aiText: '', tab: 'tender' });
+  render();
+  window.scrollTo({ top: 0, behavior: 'instant' });
+  return () => {
+    if (ui.output) URL.revokeObjectURL(ui.output.url);
+    if (ui.preview) URL.revokeObjectURL(ui.preview);
+    project = saved.project;
+    lastStatuses = saved.lastStatuses;
+    Object.assign(ui, saved.ui, { touring: false, notices: [], preview: null, picked: null, say: '' });
+    setLang(saved.lang);
+    render();
+    window.scrollTo({ top: saved.scroll, behavior: 'instant' });
+  };
+}
+
+setupTour({
+  ready: booted.catch(() => {}),
+  ui,
+  get project() { return project; },
+  begin: beginTour,
+  render,
+  isDesktop,
+  getLang,
+  clearNotices: () => ui.notices.forEach((n) => dismissNotice(n.id)),
 });
 // Expose for automated checks (screenshots/output generation); harmless for users.
 window.__tpb = { get project() { return project; }, get ui() { return ui; } };
