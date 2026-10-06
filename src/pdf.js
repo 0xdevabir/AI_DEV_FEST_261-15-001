@@ -111,6 +111,14 @@ function wrap(text, font, size, maxW) {
   return lines;
 }
 
+/** Cut text to one line that fits maxW, ending with "..." when shortened. */
+function fitLine(text, font, size, maxW) {
+  let s = ansi(text);
+  if (font.widthOfTextAtSize(s, size) <= maxW) return s;
+  while (s.length > 1 && font.widthOfTextAtSize(`${s}...`, size) > maxW) s = s.slice(0, -1);
+  return `${s.trimEnd()}...`;
+}
+
 function drawCover(pdf, page, fonts, tender, included, madeOn, indexStart) {
   const { bold, reg } = fonts;
   const [W, H] = A4;
@@ -158,14 +166,32 @@ function drawCover(pdf, page, fonts, tender, included, madeOn, indexStart) {
     cursor += d.pages;
   }
 
+  // Pick the largest font size at which every row fits above the footer, so no document is ever dropped.
+  // At the smallest size titles are cut to one line (30 files × one line always fits).
+  const titleW = R - 130 - (L + 26);
+  const room = y - (FOOTER_H + 24);
+  const layout = (size, oneLine) => {
+    const lh = size + 2;
+    const gap = Math.round(size * 0.6);
+    const titles = included.map((d) => (oneLine ? [fitLine(d.title_en, reg, size, titleW)] : wrap(d.title_en, reg, size, titleW)));
+    const height = titles.reduce((h, lines) => h + lines.length * lh + gap, 0);
+    return { size, lh, gap, titles, height };
+  };
+  let fit = null;
+  for (const size of [11, 10, 9, 8]) {
+    fit = layout(size, false);
+    if (fit.height <= room) break;
+  }
+  if (fit.height > room) fit = layout(7, true);
+
+  const { size, lh, gap, titles } = fit;
   included.forEach((d, i) => {
-    if (y < FOOTER_H + 40) return; // safety for absurdly long lists
-    const lines = wrap(d.title_en, reg, 11, R - 130 - (L + 26));
-    page.drawText(String(i + 1), { x: L, y, size: 11, font: reg });
-    lines.forEach((ln, j) => page.drawText(ln, { x: L + 26, y: y - j * 13, size: 11, font: reg }));
-    page.drawText(String(d.pages), { x: R - 100, y, size: 11, font: reg });
-    page.drawText(String(startPages[i]), { x: R - 40, y, size: 11, font: reg });
-    y -= lines.length * 13 + 8;
+    const lines = titles[i];
+    page.drawText(String(i + 1), { x: L, y, size, font: reg });
+    lines.forEach((ln, j) => page.drawText(ln, { x: L + 26, y: y - j * lh, size, font: reg }));
+    page.drawText(String(d.pages), { x: R - 100, y, size, font: reg });
+    page.drawText(String(startPages[i]), { x: R - 40, y, size, font: reg });
+    y -= lines.length * lh + gap;
   });
 
   return startPages;
