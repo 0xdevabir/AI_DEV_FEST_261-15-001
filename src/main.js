@@ -592,7 +592,7 @@ const secAttrs = (k) => `class="card sec${ui.tab === k ? ' on' : ''}" data-sec="
 function viewNeedReq(k, n) {
   return `<section ${secAttrs(k)} data-only-m>
     ${secHead(n)}
-    <div class="empty-state">${icon('tender', 'ico big')}<p>${t('need_req')}</p>
+    <div class="empty-state">${icon('tender', 'ico lg')}<p>${t('need_req')}</p>
       <button class="btn primary" data-act="tab" data-tab="tender">${t('go_tender')}</button></div>
   </section>`;
 }
@@ -655,7 +655,7 @@ function viewFiles() {
   <section ${secAttrs('files')}>
     ${secHead(2)}
     <label class="drop" data-drop>
-      <span class="drop-ico">${icon('files', 'ico big')}</span>
+      <span class="drop-ico">${icon('files', 'ico lg')}</span>
       <span class="drop-txt">${t('drop_here')}</span>
       <span class="btn primary">${t('choose_files')}</span>
       <input type="file" multiple accept="application/pdf,.pdf" data-in="files" hidden>

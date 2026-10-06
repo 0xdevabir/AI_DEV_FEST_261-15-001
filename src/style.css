@@ -131,7 +131,7 @@ body {
 }
 .main { min-width: 0; }
 .ico { width: 20px; height: 20px; flex: none; display: block; }
-.ico.big { width: 30px; height: 30px; stroke-width: 1.5; }
+.ico.lg { width: 30px; height: 30px; stroke-width: 1.5; }
 .eyebrow {
   margin: 0; font-family: var(--mono); font-size: .68rem; font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: .16em;
@@ -327,7 +327,7 @@ html[lang='bn'] .tender dt { font-family: var(--font); letter-spacing: 0; font-s
   transition: background-color .3s var(--spring), border-color .3s var(--spring), transform .4s var(--spring);
 }
 .drop-ico {
-  width: 56px; height: 56px; border-radius: 18px; display: grid; place-items: center;
+  width: 56px; height: 56px; border-radius: 18px; display: flex; align-items: center; justify-content: center;
   background: var(--card); color: var(--accent-ink); box-shadow: var(--shadow-1); border: 1px solid var(--line);
 }
 .drop:hover { border-color: var(--accent); background-color: var(--accent-soft); }
@@ -584,7 +584,11 @@ html[lang='bn'] .site-foot .foot-note { font-family: var(--font); letter-spacing
 
   /* touch-sized controls; 16px text stops iOS from zooming into fields */
   button, .btn { min-height: 44px; padding: 10px 16px; }
-  .small, .link, .x, .seg button, .chip { min-height: 0; }
+  .small, .link, .x, .seg button, .chip, .icon-btn { min-height: 0; }
+  .sec-actions .btn { white-space: nowrap; padding: 10px 14px; font-size: .88rem; }
+  .sec-actions [data-act="undo"] { flex: 0 0 auto; }
+  .notice { font-size: .84rem; padding: 9px 10px 9px 14px; border-radius: 16px; }
+  .notice:nth-last-child(n+3) { display: none; }
   .small { min-height: 36px; }
   .big { width: 100%; }
   select, input[type='date'], input[type='text'], input[type='number'], input[type='password'] { font-size: 16px; padding: 10px 12px; }
@@ -681,7 +685,7 @@ html[lang='bn'] .site-foot .foot-note { font-family: var(--font); letter-spacing
   @keyframes sec-in { from { opacity: 0; transform: translateY(10px); } }
 
   /* toasts float above the tab bar, iOS banners */
-  .notices { left: 12px; right: 12px; width: auto; bottom: calc(var(--tabbar-h) + 22px + env(safe-area-inset-bottom)); max-height: 40vh; }
+  .notices { left: 12px; right: 12px; width: auto; max-width: 520px; margin: 0 auto; bottom: calc(var(--tabbar-h) + 22px + env(safe-area-inset-bottom)); max-height: 40vh; }
 
   /* preview = bottom sheet with a grabber */
   .modal { align-items: flex-end; padding: 0; }
@@ -719,6 +723,7 @@ html[lang='bn'] .site-foot .foot-note { font-family: var(--font); letter-spacing
 @media (hover: none) {
   .drop-txt, .drag-tip { display: none; }
   tr[data-file], .chip { cursor: default; }
+  .file-tray { position: static; }
 }
 
 @media (prefers-reduced-motion: reduce) {
