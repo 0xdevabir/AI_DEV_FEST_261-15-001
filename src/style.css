@@ -232,7 +232,9 @@ html[lang='bn'] .tag { font-family: var(--font); letter-spacing: 0; font-size: .
 tr.st-missing td:first-child, tr.st-expired td:first-child { box-shadow: inset 3px 0 var(--bad); }
 tr.st-expiry_needed td:first-child { box-shadow: inset 3px 0 #ff9f0a; }
 tr.st-ok td:first-child { box-shadow: inset 3px 0 #34c759; }
-.summary { font-weight: 600; margin: 10px 0 0; letter-spacing: -.01em; }
+.summary { font-weight: 600; margin: 10px 0 0; letter-spacing: -.01em; display: inline-block; padding: 6px 12px; border-radius: var(--r-pill); }
+.summary.has-block { background: var(--bad-bg); color: var(--bad); }
+.summary.all-clear { background: var(--good-bg); color: var(--good); }
 
 /* ---------- generate ---------- */
 .blocked {

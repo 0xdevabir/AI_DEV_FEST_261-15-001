@@ -476,11 +476,15 @@ function viewRequirements() {
   if (!project.reqs) return '';
   const st = allStatuses(project);
   const deadline = project.reqs.tender.submission_deadline;
-  const counts = { ok: 0, block: 0, np: 0 };
-  for (const s of Object.values(st)) {
-    if (s === STATUS.OK) counts.ok++;
+  const counts = { block: 0, np: 0, mok: 0, mtotal: 0 };
+  for (const r of project.reqs.requirements) {
+    const s = st[r.id];
+    if (BLOCKING.has(s)) counts.block++;
     else if (s === STATUS.NOT_PROVIDED) counts.np++;
-    else counts.block++;
+    if (r.mandatory) {
+      counts.mtotal++;
+      if (s === STATUS.OK) counts.mok++;
+    }
   }
   const rows = project.reqs.requirements
     .map((r) => {
@@ -519,7 +523,7 @@ function viewRequirements() {
       <h2>${t('step3')}</h2>
       <button class="btn" data-act="auto" ${project.files.length ? '' : 'disabled'}>✨ ${t('auto_match')}</button>
     </div>
-    <p class="summary">${t('summary', counts)}</p>
+    <p class="summary ${counts.block ? 'has-block' : 'all-clear'}">${t('summary', counts)}</p>
     <div class="table-wrap"><table class="reqs">
       <thead><tr><th class="num">${t('order')}</th><th>${t('document')}</th><th>${t('file')}</th><th>${t('expiry')}</th><th>${t('status')}</th></tr></thead>
       <tbody>${rows}</tbody>
