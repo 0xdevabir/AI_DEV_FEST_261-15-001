@@ -1,5 +1,5 @@
 /* Design language: "paper dossier" — warm canvas with a faint dot grid, an ink side rail,
-   editorial serif headings and sage accents (devabir.me / webnest.app). Phones get an iOS
+   Oswald display + Geist UI (devabir.me), sage accents. Phones get an iOS
    navigation bar with a collapsing large title and a floating glass tab bar. */
 :root {
   /* palette */
@@ -31,7 +31,7 @@
   --ease: cubic-bezier(.4, 0, .2, 1);
   /* type */
   --font: 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Noto Sans Bengali', system-ui, sans-serif;
-  --serif: 'Instrument Serif', 'Noto Serif Bengali', Georgia, serif;
+  --display: 'Oswald', 'Geist', 'Noto Sans Bengali', system-ui, sans-serif;
   --mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --tabbar-h: 64px;
 
@@ -127,10 +127,11 @@ body::before { /* fixed backdrop on its own compositor layer: scrolling never re
 
 /* ---------- shell: ink rail + content column ---------- */
 .shell {
-  display: grid; grid-template-columns: 268px minmax(0, 1fr); gap: 32px; align-items: start;
-  max-width: 1360px; margin: 0 auto; padding: 20px 28px 0;
+  display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: clamp(24px, 3vw, 48px); align-items: start;
+  padding: 16px clamp(20px, 3vw, 48px) 0 16px;
 }
-.main { min-width: 0; }
+/* rail hugs the left edge; the content column reads left-to-right next to it, capped for line length */
+.main { min-width: 0; width: 100%; max-width: 1240px; }
 .ico { width: 20px; height: 20px; flex: none; display: block; }
 .ico.lg { width: 30px; height: 30px; stroke-width: 1.5; }
 .eyebrow {
@@ -140,7 +141,7 @@ body::before { /* fixed backdrop on its own compositor layer: scrolling never re
 html[lang='bn'] .eyebrow { font-family: var(--font); letter-spacing: 0; text-transform: none; font-size: .8rem; }
 
 .rail {
-  position: sticky; top: 20px; height: calc(100vh - 40px); min-height: 520px;
+  position: sticky; top: 16px; height: calc(100vh - 32px); min-height: 520px;
   display: flex; flex-direction: column; gap: 18px; padding: 22px 16px 16px;
   background:
     radial-gradient(260px 220px at 0% 0%, rgba(168, 188, 161, .2), transparent 70%),
@@ -229,16 +230,13 @@ html[lang='bn'] .eyebrow { font-family: var(--font); letter-spacing: 0; text-tra
 /* ---------- hero (desktop) ---------- */
 .hero { padding: 36px 4px 10px; }
 .hero h1 {
-  margin: 12px 0 0; font-family: var(--serif); font-weight: 400; font-size: clamp(2.6rem, 4.6vw, 4.2rem);
-  line-height: 1.02; letter-spacing: -.025em; color: var(--ink); max-width: 19ch;
+  margin: 12px 0 0; font-family: var(--display); font-weight: 700; font-size: clamp(2.5rem, 5.2vw, 4.4rem);
+  line-height: 1.05; letter-spacing: -.01em; color: var(--ink); max-width: 18ch; text-wrap: balance;
 }
 .hero h1 em {
-  font-style: italic; color: var(--accent-ink);
-  background: linear-gradient(transparent 64%, rgba(150, 238, 251, .55) 64%, rgba(150, 238, 251, .55) 92%, transparent 92%);
-  padding: 0 .06em;
+  font-style: normal; font-weight: 700; color: var(--accent-ink);
 }
-html[lang='bn'] .hero h1 { font-size: clamp(2.2rem, 3.8vw, 3.4rem); line-height: 1.2; }
-html[lang='bn'] .hero h1 em { font-style: normal; }
+html[lang='bn'] .hero h1 { font-family: var(--font); font-size: clamp(2.1rem, 3.8vw, 3.2rem); line-height: 1.25; font-weight: 700; }
 .hero-sub { margin: 16px 0 0; max-width: 56ch; color: var(--muted); font-size: 1.05rem; }
 .privacy {
   display: inline-flex; align-items: center; gap: 8px; margin: 16px 0 0; padding: 7px 14px 7px 10px;
@@ -264,12 +262,12 @@ html[lang='bn'] .hero h1 em { font-style: normal; }
 .sec-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
 .sec-titles { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .sec-num {
-  font-family: 'Instrument Serif', Georgia, serif; font-size: 3.4rem; line-height: .8; color: transparent;
-  -webkit-text-stroke: 1.2px var(--accent-ink); letter-spacing: -.04em; flex: none;
+  font-family: var(--display); font-weight: 700; font-size: 3rem; line-height: .85; color: transparent;
+  -webkit-text-stroke: 1.4px var(--accent-ink); letter-spacing: -.02em; flex: none;
 }
 .card h2 {
-  margin: 4px 0 0; font-family: var(--serif); font-weight: 400; font-size: 1.85rem; line-height: 1.1;
-  letter-spacing: -.02em; color: var(--ink);
+  margin: 4px 0 0; font-family: var(--display); font-weight: 700; font-size: 1.75rem; line-height: 1.1;
+  letter-spacing: -.01em; color: var(--ink);
 }
 html[lang='bn'] .card h2 { font-size: 1.45rem; font-weight: 600; line-height: 1.35; }
 .sec-actions { margin: 0; }
@@ -313,11 +311,14 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ---------- tender summary ---------- */
 .tender {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
   margin: 16px 0 6px; background: var(--line); border: 1px solid var(--line);
   border-radius: var(--r-md); overflow: hidden;
 }
-.tender > div { background: var(--card-2); padding: 14px 16px; }
+.tender > div { background: var(--card-2); padding: 14px 16px; grid-column: span 2; }
+/* row 1: ID · deadline · title — row 2: entity · bidder */
+.tender > div:first-child { grid-column: span 1; order: -2; }
+.tender > div:nth-child(5) { grid-column: span 1; order: -1; }
 .tender dt {
   font-family: var(--mono); font-size: .66rem; font-weight: 600; color: var(--muted);
   text-transform: uppercase; letter-spacing: .14em; margin-bottom: 4px;
@@ -558,7 +559,8 @@ html[lang='bn'] .site-foot .foot-note { font-family: var(--font); letter-spacing
 
 /* ---------- small laptops ---------- */
 @media (min-width: 900px) and (max-width: 1100px) {
-  .shell { grid-template-columns: 236px minmax(0, 1fr); gap: 22px; padding: 16px 18px 0; }
+  .shell { grid-template-columns: 232px minmax(0, 1fr); gap: 22px; padding: 12px 18px 0 12px; }
+  .rail { top: 12px; height: calc(100vh - 24px); }
   .card { padding: 22px; }
 }
 
