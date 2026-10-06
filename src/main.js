@@ -214,11 +214,13 @@ async function renderIndexPng(docs, startPages) {
     await document.fonts.load('28px "Noto Sans Bengali"', 'অআ');
   } catch {}
   const W = 1240;
-  const H = 1754; // A4 at 150 dpi
+  const H = 1754; // layout units: A4 at 150 dpi
+  const SCALE = 2; // drawn at 300 dpi so the text stays sharp when printed
   const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
+  c.width = W * SCALE;
+  c.height = H * SCALE;
   const g = c.getContext('2d');
+  g.scale(SCALE, SCALE);
   g.fillStyle = '#fff';
   g.fillRect(0, 0, W, H);
   const F = '"Noto Sans Bengali", "Noto Sans", Arial, sans-serif';
@@ -239,25 +241,28 @@ async function renderIndexPng(docs, startPages) {
   g.textAlign = 'left';
   y += 18;
   g.fillRect(110, y, 1020, 2);
-  y += 50;
+  // Shrink rows (and their text) only when needed, so long lists never run past the footer band.
+  const k = Math.min(1, (H - 140 - y) / Math.max(1, docs.length) / 96);
+  y += 50 * k;
+  const fs = (px) => `${Math.round(px * k)}px ${F}`;
   docs.forEach((d, i) => {
     const end = startPages[i] + d.file.pages - 1;
     g.fillStyle = '#111';
-    g.font = `28px ${F}`;
+    g.font = fs(28);
     g.fillText(String(i + 1), 110, y);
     g.fillText(d.req.title_en, 170, y, 680);
     g.fillStyle = '#444';
-    g.font = `26px ${F}`;
-    g.fillText(d.req.title_bn, 170, y + 38, 680);
+    g.font = fs(26);
+    g.fillText(d.req.title_bn, 170, y + 38 * k, 680);
     g.textAlign = 'right';
     g.fillStyle = '#111';
-    g.font = `28px ${F}`;
+    g.font = fs(28);
     g.fillText(String(d.file.pages), 960, y);
     g.fillText(startPages[i] === end ? String(startPages[i]) : `${startPages[i]}–${end}`, 1130, y);
     g.textAlign = 'left';
-    y += 96;
+    y += 96 * k;
     g.fillStyle = '#e3e8ee';
-    g.fillRect(110, y - 54, 1020, 1);
+    g.fillRect(110, y - 54 * k, 1020, 1);
   });
   const blob = await new Promise((res) => c.toBlob(res, 'image/png'));
   return new Uint8Array(await blob.arrayBuffer());
